@@ -1,0 +1,401 @@
+:root {
+    color-scheme: dark;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    font-size: 14px;
+}
+
+.container {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 20px 24px 48px;
+}
+
+/* ===== 顶栏 ===== */
+.topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.topbar h1 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.spacer {
+    flex: 1;
+}
+
+.status {
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 999px;
+}
+
+.status.on {
+    color: #3fb950;
+    background: rgba(63, 185, 80, 0.12);
+}
+
+.status.off {
+    color: #8b949e;
+    background: rgba(139, 148, 158, 0.12);
+}
+
+/* ===== 按钮 ===== */
+.btn {
+    background: #21262d;
+    border: 1px solid #30363d;
+    color: #e6edf3;
+    border-radius: 6px;
+    padding: 5px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.btn:hover:not(:disabled) {
+    background: #30363d;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: #1f6feb;
+    border-color: #1f6feb;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: #388bfd;
+}
+
+.btn-danger {
+    color: #f85149;
+}
+
+.btn-block {
+    width: 100%;
+    margin-top: 10px;
+}
+
+.btn-ghost {
+    background: transparent;
+    border-color: transparent;
+    color: #8b949e;
+}
+
+/* ===== 徽标 ===== */
+.badge-live, .badge-unsaved {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-left: 8px;
+}
+
+.badge-live {
+    color: #3fb950;
+    background: rgba(63, 185, 80, 0.15);
+    border: 1px solid rgba(63, 185, 80, 0.4);
+}
+
+.badge-unsaved {
+    color: #d29922;
+    background: rgba(210, 153, 34, 0.12);
+}
+
+/* ===== 账号列表（一行一个） ===== */
+.list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.empty {
+    color: #8b949e;
+    text-align: center;
+    padding: 48px 0;
+}
+
+.row {
+    display: flex;
+    align-items: flex-start;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 12px 16px;
+}
+
+.row-current {
+    border-color: #1f6feb;
+}
+
+.row-guest {
+    border-style: dashed;
+}
+
+.row-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.row-title {
+    display: flex;
+    align-items: center;
+}
+
+.row-label {
+    font-weight: 600;
+    font-size: 14px;
+    cursor: default;
+}
+
+.row-meta {
+    color: #8b949e;
+    font-size: 12px;
+    margin-top: 5px;
+}
+
+.row-meta .dot {
+    margin: 0 6px;
+}
+
+/* 操作按钮固定右上角，不随额度内容多少移动 */
+.row-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+    margin-left: 16px;
+}
+
+.row-actions .btn {
+    padding: 4px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.rename-input {
+    width: 180px;
+    background: #0d1117;
+    border: 1px solid #1f6feb;
+    border-radius: 6px;
+    color: #e6edf3;
+    padding: 3px 8px;
+    font-size: 13px;
+}
+
+/* ===== 额度面板 ===== */
+.quota-panel {
+    margin-top: 10px;
+    border-top: 1px solid #21262d;
+    padding-top: 10px;
+    font-size: 12px;
+    color: #8b949e;
+}
+
+.quota-row {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.quota-row .remaining {
+    color: #3fb950;
+    font-weight: 600;
+}
+
+.tier {
+    color: #d29922;
+    border: 1px solid rgba(210, 153, 34, 0.4);
+    border-radius: 4px;
+    padding: 0 6px;
+}
+
+.quota-item {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+}
+
+.quota-item-name {
+    color: #c9d1d9;
+}
+
+.quota-coding-plan {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed #30363d;
+}
+
+.valid-period {
+    color: #8b949e;
+    font-size: 11px;
+}
+
+/* ===== 弹窗 ===== */
+.modal-mask {
+    position: fixed;
+    inset: 0;
+    background: rgba(1, 4, 9, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+.modal {
+    width: 440px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 20px;
+}
+
+.modal-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.tab {
+    flex: 1;
+    background: transparent;
+    border: 1px solid #30363d;
+    color: #8b949e;
+    border-radius: 6px;
+    padding: 7px 0;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.tab.active {
+    color: #e6edf3;
+    border-color: #1f6feb;
+    background: rgba(31, 111, 235, 0.12);
+}
+
+.field {
+    margin-bottom: 12px;
+}
+
+.field label {
+    display: block;
+    font-size: 12px;
+    color: #8b949e;
+    margin-bottom: 5px;
+}
+
+.field input, .field textarea {
+    width: 100%;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #e6edf3;
+    padding: 7px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    resize: vertical;
+}
+
+.field input:focus, .field textarea:focus {
+    outline: none;
+    border-color: #1f6feb;
+}
+
+.hint {
+    font-size: 12px;
+    color: #8b949e;
+    line-height: 1.6;
+}
+
+/* ===== Toast ===== */
+.modal-sm {
+    width: 340px;
+}
+
+.confirm-text {
+    margin: 4px 0 18px;
+    line-height: 1.6;
+}
+
+.confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.btn-danger-solid {
+    background: #da3633;
+    border-color: #da3633;
+    color: #fff;
+}
+
+.btn-danger-solid:hover:not(:disabled) {
+    background: #f85149;
+}
+
+.hint.warn {
+    color: #d29922;
+}
+
+.quota-error {
+    color: #ffa198;
+}
+
+.provider-choices {
+    display: flex;
+    gap: 8px;
+}
+
+.choice {
+    flex: 1;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    color: #8b949e;
+    border-radius: 6px;
+    padding: 8px 0;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.choice.active {
+    color: #e6edf3;
+    border-color: #1f6feb;
+    background: rgba(31, 111, 235, 0.12);
+}
+
+/* ===== Toast ===== */
+.toast {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 13px;
+    z-index: 200;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.toast-error {
+    border-color: #f85149;
+    color: #ffa198;
+}

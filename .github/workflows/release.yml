@@ -1,0 +1,111 @@
+# 跨平台发布流水线
+#
+# 为什么需要 CI：Wails GUI 依赖各平台原生 WebView（macOS=WKWebView、
+# Windows=WebView2、Linux=WebKitGTK），CGO 绑定导致无法在本机交叉编译，
+# Windows/Linux 包必须在对应系统上构建。
+#
+# 用法：推一个 tag 即触发全平台打包，产物出现在 Actions Artifacts / Release：
+#   git tag v0.2.0 && git push origin v0.2.0
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 0.2.0）'
+        default: '0.2.0'
+
+env:
+  GO_VERSION: '1.24'
+  NODE_VERSION: '20'
+
+jobs:
+  # ---------- macOS（M 系列 arm64 优先） ----------
+  macos:
+    runs-on: macos-14 # arm64 runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: ${{ env.GO_VERSION }} }
+      - uses: actions/setup-node@v4
+        with: { node-version: ${{ env.NODE_VERSION }} }
+      - run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+      - name: 版本号
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+        if: startsWith(github.ref, 'refs/tags/')
+      - name: 版本号（手动触发）
+        run: echo "VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      - run: make release VERSION=$VERSION
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zcas-${{ env.VERSION }}-macos-arm64
+          path: dist/*.pkg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zcas-${{ env.VERSION }}-macos-arm64-dmg
+          path: dist/*.dmg
+
+  # ---------- Windows（NSIS 安装器，自动安装） ----------
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: ${{ env.GO_VERSION }} }
+      - uses: actions/setup-node@v4
+        with: { node-version: ${{ env.NODE_VERSION }} }
+      - run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+      - name: 构建 GUI（-nsis 自动生成安装器）
+        working-directory: app
+        run: wails build -clean -platform windows/amd64 -nsis
+      - name: 构建 CLI
+        run: go build -trimpath -ldflags "-s -w" -o app/build/bin/zcas.exe ./cmd/zcas
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zcas-windows-amd64
+          path: |
+            app/build/bin/*.exe
+            app/build/bin/*-installer.exe
+
+  # ---------- Linux（tar.gz + install.sh） ----------
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: ${{ env.GO_VERSION }} }
+      - uses: actions/setup-node@v4
+        with: { node-version: ${{ env.NODE_VERSION }} }
+      - run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+      - name: 安装 WebKitGTK 依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - name: 构建 GUI
+        working-directory: app
+        run: wails build -clean -platform linux/amd64
+      - name: 构建 CLI 并打包
+        run: |
+          go build -trimpath -ldflags "-s -w" -o app/build/bin/zcas-cli ./cmd/zcas
+          cd app/build/bin
+          tar czf ../../../dist-linux-amd64.tar.gz zcas zcas-cli
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zcas-linux-amd64
+          path: dist-linux-amd64.tar.gz
+
+  # ---------- 汇总发布到 GitHub Release ----------
+  publish:
+    needs: [macos, windows, linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { merge-multiple: true, path: release }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/**/*
