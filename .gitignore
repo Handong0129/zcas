@@ -1,0 +1,36 @@
+# ===== 构建产物 =====
+# 根目录编译出的 CLI 二进制
+/zcas
+# 发布打包输出 (make release)
+/dist/
+# Wails 构建输出（build/ 下的图标、plist 等资源需要跟踪）
+/app/build/bin/
+/app/build/windows/installer/tmp/
+# 前端构建输出
+/app/frontend/dist/
+
+# ===== 依赖 =====
+node_modules/
+
+# ===== Go =====
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# ===== 系统/编辑器 =====
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ===== 环境/密钥 =====
+.env
+.env.local
+*.pem
+*.key
