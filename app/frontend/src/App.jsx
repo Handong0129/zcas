@@ -12,6 +12,8 @@ function fmtNum(v) {
 
 function fmtDate(ms) {
     if (!ms) return ''
+    // nextResetTime 可能是秒级时间戳，按数量级兜底
+    if (ms < 1e12) ms *= 1000
     const d = new Date(ms)
     const p = n => String(n).padStart(2, '0')
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
@@ -54,6 +56,8 @@ function QuotaView({qs}) {
                         <div className="quota-item" key={`cp-${i}`}>
                             <span className="quota-item-name">{l.name}</span>
                             <span>已用 {fmtNum(l.used)} / {fmtNum(l.limit)}（{l.percent}%）</span>
+                            {l.nextReset > 0 &&
+                                <span className="reset-time">重置 {fmtDate(l.nextReset)}</span>}
                         </div>
                     ))}
                 </>
