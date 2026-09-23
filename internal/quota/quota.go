@@ -710,16 +710,38 @@ func EnrichCodingPlan(ov *Overview, cred map[string]any, secret string) {
 		s, _ := cred[k].(string)
 		return safeDecrypt(s, secret)
 	}
-	// 1) 客户端物化的 coding-plan api-key（account-provider:* 凭据）
-	for k, v := range cred {
-		if !strings.HasPrefix(k, "account-provider:coding-plan:") || !strings.HasSuffix(k, ":api-key") {
-			continue
+	// accountID 本账号在该渠道的 user id（user_info.id）。
+	// coding-plan api-key 内嵌账号 id，但客户端切换账号后不清残留，
+	// 必须按此过滤，否则无订阅账号会显示成别人的订阅（实测复现）。
+	accountID := func(provider string) string {
+		var ui struct {
+			ID string `json:"id"`
 		}
+		if json.Unmarshal([]byte(decrypt("oauth:"+provider+":user_info")), &ui) == nil {
+			return ui.ID
+		}
+		return ""
+	}
+	// 1) 客户端物化的 coding-plan api-key（account-provider:* 凭据）
+	// 排序遍历保证确定性（map 随机序会导致同账号多次刷新展示不同账号的数据）。
+	keys := make([]string, 0, len(cred))
+	for k := range cred {
+		if strings.HasPrefix(k, "account-provider:coding-plan:") && strings.HasSuffix(k, ":api-key") {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
 		provider := "bigmodel"
 		if strings.Contains(k, ":zai-") {
 			provider = "zai"
 		}
-		s, _ := v.(string)
+		// key 形如 …:account:<渠道slug>:account:<账号id>:api-key；
+		// 内嵌账号 id 存在时必须与本账号匹配（本账号 id 未知也跳过，不冒险展示）。
+		if embedded := embeddedAccountID(k); embedded != "" && accountID(provider) != embedded {
+			continue
+		}
+		s, _ := cred[k].(string)
 		if u, err := FetchCodingPlanUsage(provider, safeDecrypt(s, secret)); err == nil {
 			ov.CodingPlan = u
 			enrichSubscription(u, decrypt("oauth:bigmodel:access_token"))
@@ -740,6 +762,17 @@ func EnrichCodingPlan(ov *Overview, cred map[string]any, secret string) {
 			return
 		}
 	}
+}
+
+// embeddedAccountID 提取 coding-plan api-key 里内嵌的账号 id
+// （account-provider:coding-plan:account:<渠道slug>:account:<账号id>:api-key），没有则返回空。
+func embeddedAccountID(key string) string {
+	const sep = ":account:"
+	i := strings.LastIndex(key, sep)
+	if i < 0 {
+		return ""
+	}
+	return strings.TrimSuffix(key[i+len(sep):], ":api-key")
 }
 
 // enrichSubscription bigmodel 侧补充订阅产品名与有效期（可选，失败静默）。
