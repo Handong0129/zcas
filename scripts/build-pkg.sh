@@ -4,7 +4,7 @@
 #   ② CLI 装入 /usr/local/bin（系统默认 PATH，开箱即用）
 # 用法: scripts/build-pkg.sh [版本号]
 set -euo pipefail
-VERSION=${1:-0.2.0}
+VERSION=${1:-0.3.0}
 APP="ZCode账号切换"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STAGE="$ROOT/dist/pkg-root"

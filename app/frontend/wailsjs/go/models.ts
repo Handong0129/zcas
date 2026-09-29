@@ -231,6 +231,54 @@ export namespace quota {
 	        this.periodEnd = source["periodEnd"];
 	    }
 	}
+	export class ResetCardGroup {
+	    count: number;
+	    earliestExpiry?: number;
+	    lastUsedAt?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResetCardGroup(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.count = source["count"];
+	        this.earliestExpiry = source["earliestExpiry"];
+	        this.lastUsedAt = source["lastUsedAt"];
+	    }
+	}
+	export class ResetCards {
+	    fiveHour: ResetCardGroup;
+	    week: ResetCardGroup;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResetCards(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fiveHour = this.convertValues(source["fiveHour"], ResetCardGroup);
+	        this.week = this.convertValues(source["week"], ResetCardGroup);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class PlanTier {
 	    label: string;
 	    tier: string;
@@ -254,6 +302,7 @@ export namespace quota {
 	    planTier?: PlanTier;
 	    items: Item[];
 	    codingPlan?: CodingPlanUsage;
+	    resetCards?: ResetCards;
 	    refreshedAt: number;
 	
 	    static createFrom(source: any = {}) {
@@ -270,6 +319,7 @@ export namespace quota {
 	        this.planTier = this.convertValues(source["planTier"], PlanTier);
 	        this.items = this.convertValues(source["items"], Item);
 	        this.codingPlan = this.convertValues(source["codingPlan"], CodingPlanUsage);
+	        this.resetCards = this.convertValues(source["resetCards"], ResetCards);
 	        this.refreshedAt = source["refreshedAt"];
 	    }
 	
@@ -291,6 +341,8 @@ export namespace quota {
 		    return a;
 		}
 	}
+	
+	
 
 }
 

@@ -46,15 +46,16 @@ type Item struct {
 }
 
 type Overview struct {
-	Total       *float64  `json:"total"`
-	Used        *float64  `json:"used"`
-	Remaining   *float64  `json:"remaining"`
-	PercentUsed *float64  `json:"percentUsed"`
-	IsEmpty     bool      `json:"isEmpty"`
+	Total       *float64         `json:"total"`
+	Used        *float64         `json:"used"`
+	Remaining   *float64         `json:"remaining"`
+	PercentUsed *float64         `json:"percentUsed"`
+	IsEmpty     bool             `json:"isEmpty"`
 	PlanTier    *PlanTier        `json:"planTier,omitempty"`
 	Items       []Item           `json:"items"`
 	CodingPlan  *CodingPlanUsage `json:"codingPlan,omitempty"`
-	RefreshedAt int64     `json:"refreshedAt"`
+	ResetCards  *ResetCards      `json:"resetCards,omitempty"`
+	RefreshedAt int64            `json:"refreshedAt"`
 }
 
 func buildBillingURL(base string, cfg *config.Config) string {
@@ -572,11 +573,11 @@ func contains(ss []string, v string) bool {
 const CodingPlanUsagePath = "/api/monitor/usage/quota/limit"
 
 type CodingPlanLimit struct {
-	Name      string  `json:"name"`      // 每5小时 / 每周
-	Limit     float64 `json:"limit"`     // 限额总量（接口字段 usage，命名有误导性）
-	Used      float64 `json:"used"`      // 已用（接口字段 currentValue）
+	Name      string  `json:"name"`  // 每5小时 / 每周
+	Limit     float64 `json:"limit"` // 限额总量（接口字段 usage，命名有误导性）
+	Used      float64 `json:"used"`  // 已用（接口字段 currentValue）
 	Remaining float64 `json:"remaining"`
-	Percent   int     `json:"percent"`   // 已用百分比
+	Percent   int     `json:"percent"` // 已用百分比
 	NextReset int64   `json:"nextReset,omitempty"`
 }
 
@@ -684,18 +685,32 @@ func FetchBigModelSubscription(accessToken string) (productName, validPeriod str
 	var env struct {
 		Code int `json:"code"`
 		Data []struct {
-			ProductName string `json:"productName"`
-			Status      string `json:"status"`
-			Valid       string `json:"valid"`
+			ProductName   string `json:"productName"`
+			Status        string `json:"status"`
+			Valid         string `json:"valid"`
+			NextRenewTime string `json:"nextRenewTime"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil || env.Code != 200 {
 		return "", "", fmt.Errorf("订阅查询失败: %s", truncate(string(body), 120))
 	}
 	for _, s := range env.Data {
-		if strings.EqualFold(s.Status, "VALID") && strings.Contains(strings.ToLower(s.ProductName), "coding") {
+		if !strings.EqualFold(s.Status, "VALID") || !strings.Contains(strings.ToLower(s.ProductName), "coding") {
+			continue
+		}
+		// valid 字段描述的是下一计费周期（待支付）的起止，不是当前可用期；
+		// 当前周期结束时间取 nextRenewTime（实测确认，格式 2006-01-02）。
+		if s.NextRenewTime != "" {
+			return s.ProductName, s.NextRenewTime, nil
+		}
+		if s.Valid != "" {
+			// 兜底：valid 形如 "2006-01-02 15:04:05-2006-01-02 15:04:05"，取后半段的日期部分
+			if len(s.Valid) >= 30 {
+				return s.ProductName, s.Valid[20:30], nil
+			}
 			return s.ProductName, s.Valid, nil
 		}
+		return s.ProductName, "", nil
 	}
 	return "", "", errors.New("无有效 coding-plan 订阅")
 }
@@ -784,6 +799,128 @@ func enrichSubscription(u *CodingPlanUsage, accessToken string) {
 	if err == nil {
 		u.ProductName = name
 		u.ValidPeriod = period
+	}
+}
+
+// ===== Coding Plan 重置卡（5小时/周重置，zcode.z.ai 接口，逆向自 ZCode app.asar usage-stats 模块）=====
+
+// ResetStatusURL 重置卡状态查询端点。鉴权用 zcodejwt + MaaS oauth token 双头，
+// 不需要 billing 接口那套 x-zcode-* 请求头（实测确认）。
+const ResetStatusURL = "https://zcode.z.ai/api/v1/coding-plan/reset/status"
+
+// ResetCardGroup 一类重置卡的聚合（5小时 / 周）。
+type ResetCardGroup struct {
+	Count          int   `json:"count"`                    // 持有张数
+	EarliestExpiry int64 `json:"earliestExpiry,omitempty"` // 最早一张的过期时间（毫秒）
+	LastUsedAt     int64 `json:"lastUsedAt,omitempty"`     // 最近一次使用时间（毫秒）
+}
+
+// ResetCards 账号下可用的赠送重置卡。
+type ResetCards struct {
+	FiveHour ResetCardGroup `json:"fiveHour"`
+	Week     ResetCardGroup `json:"week"`
+}
+
+// FetchResetStatus 查询 coding-plan 重置卡库存。
+// 官方客户端只支持个人账号（Bigmodel-Target-Type: PERSONAL）；团队账号另有组织头，本工具不涉及。
+func FetchResetStatus(zcodeJWT, maasToken string) (*ResetCards, error) {
+	zcodeJWT = strings.TrimSpace(zcodeJWT)
+	maasToken = strings.TrimSpace(maasToken)
+	if zcodeJWT == "" || maasToken == "" {
+		return nil, errors.New("缺少重置卡查询 token")
+	}
+	req, err := http.NewRequest(http.MethodGet, ResetStatusURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	// 与官方客户端 createCodingPlanResetHeaders 一致：jwt 补 Bearer，MaaS token 裸放。
+	if !strings.HasPrefix(strings.ToLower(zcodeJWT), "bearer ") {
+		zcodeJWT = "Bearer " + zcodeJWT
+	}
+	req.Header.Set("Authorization", zcodeJWT)
+	req.Header.Set("X-Bigmodel-Authorization", maasToken)
+	req.Header.Set("Bigmodel-Target-Type", "PERSONAL")
+	req.Header.Set("Accept", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("重置卡接口 HTTP %d", resp.StatusCode)
+	}
+	var env struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			FiveHourResets []struct {
+				ExpireAt int64 `json:"expire_at"`
+			} `json:"available_five_hour_resets"`
+			WeekResets []struct {
+				ExpireAt int64 `json:"expire_at"`
+			} `json:"available_week_resets"`
+			FiveHourHistory *struct {
+				UsedAt int64 `json:"used_at"`
+			} `json:"latest_five_hour_reset_history"`
+			WeekHistory *struct {
+				UsedAt int64 `json:"used_at"`
+			} `json:"latest_week_reset_history"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil || env.Code != 0 {
+		return nil, fmt.Errorf("重置卡接口返回异常: %s", truncate(string(body), 120))
+	}
+	group := func(resets []struct {
+		ExpireAt int64 `json:"expire_at"`
+	}, history *struct {
+		UsedAt int64 `json:"used_at"`
+	}) ResetCardGroup {
+		g := ResetCardGroup{Count: len(resets)}
+		for _, r := range resets {
+			if g.EarliestExpiry == 0 || (r.ExpireAt > 0 && r.ExpireAt < g.EarliestExpiry) {
+				g.EarliestExpiry = r.ExpireAt
+			}
+		}
+		if history != nil {
+			g.LastUsedAt = history.UsedAt
+		}
+		return g
+	}
+	return &ResetCards{
+		FiveHour: group(env.Data.FiveHourResets, env.Data.FiveHourHistory),
+		Week:     group(env.Data.WeekResets, env.Data.WeekHistory),
+	}, nil
+}
+
+// EnrichResetCards 若凭据含 zcodejwt + oauth access_token，查询重置卡并挂到
+// Overview.ResetCards；任何失败都静默（附加信息，不影响主流程）。
+func EnrichResetCards(ov *Overview, cred map[string]any, secret string) {
+	if ov == nil || len(cred) == 0 {
+		return
+	}
+	decrypt := func(k string) string {
+		s, _ := cred[k].(string)
+		return safeDecrypt(s, secret)
+	}
+	jwt := decrypt("zcodejwttoken")
+	if jwt == "" {
+		return
+	}
+	// 两个 token 都是本账号快照字段，zai/bigmodel 任一有效即可；当前渠道优先。
+	providers := []string{"bigmodel", "zai"}
+	if decrypt("oauth:active_provider") == "zai" {
+		providers = []string{"zai", "bigmodel"}
+	}
+	for _, p := range providers {
+		token := decrypt("oauth:" + p + ":access_token")
+		if token == "" {
+			continue
+		}
+		if rc, err := FetchResetStatus(jwt, token); err == nil {
+			ov.ResetCards = rc
+			return
+		}
 	}
 }
 

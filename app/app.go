@@ -277,6 +277,7 @@ func (a *App) GetQuota(id string) (*quota.Overview, error) {
 		return nil, err
 	}
 	quota.EnrichCodingPlan(ov, cred, secret)
+	quota.EnrichResetCards(ov, cred, secret)
 	return ov, nil
 }
 

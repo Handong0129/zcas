@@ -4,7 +4,7 @@
 # 用法: scripts/build-linux-docker.sh [arm64|amd64] [版本号]
 set -euo pipefail
 ARCH=${1:-arm64}
-VERSION=${2:-0.2.0}
+VERSION=${2:-0.3.0}
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IMAGE="zcas-linux-builder:$ARCH"
 OUT="$ROOT/dist/linux-$ARCH"

@@ -11,7 +11,7 @@
 #   scripts/make-icon.sh /path/to/新图标.png   （然后重新 make release）
 
 APP      := ZCode账号切换
-VERSION  ?= 0.2.0
+VERSION  ?= 0.3.0
 ARCH     ?= arm64
 DIST     := dist
 

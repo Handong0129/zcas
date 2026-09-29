@@ -10,11 +10,11 @@ make release
 
 | 产物 | 平台 | 用户安装方式 |
 |---|---|---|
-| `zcas-0.2.0-macos-arm64.pkg` | macOS M 系列 | 双击安装器，自动装 App 到 `/Applications` + CLI 到 `/usr/local/bin`，零配置 |
-| `zcas-0.2.0-macos-arm64.dmg` | macOS M 系列 | 拖拽安装（仅 GUI，不含 CLI） |
-| `zcas-0.2.0-windows-amd64-installer.exe` | Windows x64 | 双击 NSIS 安装器，自动装 GUI（开始菜单/桌面快捷方式） |
-| `zcas-0.2.0-windows-amd64-cli.zip` | Windows x64 | 解压即 CLI（`zcas.exe`），建议放到 PATH |
-| `zcas-0.2.0-linux-arm64.tar.gz` | Linux ARM64 | 解压后 `sudo ./install.sh`，自动装 CLI + GUI + 桌面入口 |
+| `zcas-0.3.0-macos-arm64.pkg` | macOS M 系列 | 双击安装器，自动装 App 到 `/Applications` + CLI 到 `/usr/local/bin`，零配置 |
+| `zcas-0.3.0-macos-arm64.dmg` | macOS M 系列 | 拖拽安装（仅 GUI，不含 CLI） |
+| `zcas-0.3.0-windows-amd64-installer.exe` | Windows x64 | 双击 NSIS 安装器，自动装 GUI（开始菜单/桌面快捷方式） |
+| `zcas-0.3.0-windows-amd64-cli.zip` | Windows x64 | 解压即 CLI（`zcas.exe`），建议放到 PATH |
+| `zcas-0.3.0-linux-arm64.tar.gz` | Linux ARM64 | 解压后 `sudo ./install.sh`，自动装 CLI + GUI + 桌面入口 |
 
 单独构建：`make release-mac` / `make release-windows` / `make release-linux`
 （Linux 出 x86_64：`ARCH=amd64 make release-linux`，走 Rosetta 模拟，较慢）。
@@ -44,7 +44,7 @@ make release
 
 ## 二、GitHub Actions（可选）
 
-`.github/workflows/release.yml` 已内置：`git tag v0.2.0 && git push origin v0.2.0`
+`.github/workflows/release.yml` 已内置：`git tag v0.3.0 && git push origin v0.3.0`
 后自动构建三平台并发布 Release。本机已能全平台出包，CI 主要用于自动化发布。
 
 ## 三、替换应用图标

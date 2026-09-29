@@ -2,7 +2,7 @@
 # 构建 macOS .dmg 拖拽安装镜像（仅 GUI；需要 CLI 的用户请用 .pkg）
 # 用法: scripts/build-dmg.sh [版本号]
 set -euo pipefail
-VERSION=${1:-0.2.0}
+VERSION=${1:-0.3.0}
 APP="ZCode账号切换"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DMGDIR="$ROOT/dist/dmg-root"
