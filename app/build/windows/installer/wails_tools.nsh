@@ -14,7 +14,7 @@
     !define INFO_PRODUCTNAME "ZCode 账号切换"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "0.2.0"
+    !define INFO_PRODUCTVERSION "0.3.0"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "仅供学习研究和个人使用"
