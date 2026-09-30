@@ -1,9 +1,9 @@
 import React, {useCallback, useEffect, useState} from 'react'
 import {
-    Capture, DeleteAccount, FinishOAuth, GetQuota, GetState,
-    RenameAccount, Rollback, StartOAuth, CancelOAuth, Use,
+    Capture, CheckUpdate, DeleteAccount, FinishOAuth, GetQuota, GetState,
+    GetVersion, RenameAccount, Rollback, StartOAuth, CancelOAuth, Use,
 } from '../wailsjs/go/main/App'
-import {EventsOn} from '../wailsjs/runtime/runtime'
+import {BrowserOpenURL, EventsOn} from '../wailsjs/runtime/runtime'
 
 function fmtNum(v) {
     return Number.isInteger(v) ? v.toLocaleString('zh-CN') : v.toFixed(2)
@@ -183,6 +183,60 @@ function ConfirmDialog({text, onOk, onCancel}) {
                 <div className="confirm-actions">
                     <button className="btn" onClick={onCancel}>取消</button>
                     <button className="btn btn-danger-solid" onClick={onOk}>确定</button>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+
+
+// VersionModal 查看版本
+function VersionModal({version, onClose}) {
+    return (
+        <div className="modal-mask" onClick={onClose}>
+            <div className="modal modal-sm" onClick={e => e.stopPropagation()}>
+                <h3 className="help-title">关于 ZCS</h3>
+                <div className="version-row"><span>当前版本</span><b>v{version}</b></div>
+                <div className="version-row"><span>项目地址</span><b>github.com/Handong0129/zcas</b></div>
+                <div className="confirm-actions">
+                    <button className="btn" onClick={() => BrowserOpenURL('https://github.com/Handong0129/zcas')}>
+                        项目主页</button>
+                    <button className="btn btn-primary" onClick={onClose}>关闭</button>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+// UpdateModal 检查更新（打开即查询）
+function UpdateModal({onClose}) {
+    const [st, setSt] = useState({loading: true})
+    useEffect(() => {
+        CheckUpdate()
+            .then(r => setSt({loading: false, result: r}))
+            .catch(e => setSt({loading: false, error: String(e)}))
+    }, [])
+    const r = st.result
+    return (
+        <div className="modal-mask" onClick={onClose}>
+            <div className="modal modal-sm" onClick={e => e.stopPropagation()}>
+                <h3 className="help-title">检查更新</h3>
+                {st.loading && <p className="hint">正在查询最新版本…</p>}
+                {st.error && <p className="hint warn">检查失败：{st.error}</p>}
+                {r && (
+                    <>
+                        <div className="version-row"><span>当前版本</span><b>v{r.current}</b></div>
+                        <div className="version-row"><span>最新版本</span><b>v{r.latest}</b></div>
+                        {r.hasUpdate
+                            ? <p className="hint warn">发现新版本 v{r.latest}</p>
+                            : <p className="hint">已是最新版本 ✓</p>}
+                    </>
+                )}
+                <div className="confirm-actions">
+                    {r?.hasUpdate &&
+                        <button className="btn btn-primary" onClick={() => BrowserOpenURL(r.url)}>去下载</button>}
+                    <button className="btn" onClick={onClose}>关闭</button>
                 </div>
             </div>
         </div>
@@ -472,6 +526,9 @@ export default function App() {
     const [state, setState] = useState(null)
     const [showAdd, setShowAdd] = useState(false)
     const [showHelp, setShowHelp] = useState(false)
+    const [showVersion, setShowVersion] = useState(false)
+    const [showUpdate, setShowUpdate] = useState(false)
+    const [version, setVersion] = useState('')
     const [toast, setToast] = useState(null)
     const [quotas, setQuotas] = useState({}) // key: 'current' 或账号 id → {loading, data, error}
     const [confirm, setConfirm] = useState(null) // {text, action}
@@ -508,6 +565,14 @@ export default function App() {
 
     useEffect(() => {
         refresh()
+        GetVersion().then(setVersion).catch(() => {})
+        // 菜单栏「帮助 → 检查更新 / 关于」（非 macOS 平台有「关于」项）
+        const offUpdate = EventsOn('menu:check-update', () => setShowUpdate(true))
+        const offAbout = EventsOn('menu:about', () => setShowVersion(true))
+        return () => {
+            offUpdate()
+            offAbout()
+        }
     }, [refresh])
 
     const currentId = state?.current?.savedId || null
@@ -531,9 +596,9 @@ export default function App() {
                             notify(String(e), 'error')
                         }
                     })}>回滚</button>}
-                <button className="btn btn-help" title="字段说明" onClick={() => setShowHelp(true)}>ⓘ</button>
                 <button className="btn" onClick={refresh}>刷新</button>
                 <button className="btn btn-primary" onClick={() => setShowAdd(true)}>添加账号</button>
+                <button className="btn btn-help" title="字段说明" onClick={() => setShowHelp(true)}>ⓘ</button>
             </header>
 
             <main className="list">
@@ -554,6 +619,8 @@ export default function App() {
             </main>
 
             {showHelp && <HelpModal onClose={() => setShowHelp(false)}/>}
+            {showVersion && <VersionModal version={version} onClose={() => setShowVersion(false)}/>}
+            {showUpdate && <UpdateModal onClose={() => setShowUpdate(false)}/>}
             {showAdd && <AddAccountModal onClose={() => setShowAdd(false)}
                                          onDone={() => {
                                              setShowAdd(false)

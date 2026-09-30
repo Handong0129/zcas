@@ -11,7 +11,7 @@
     !define INFO_COMPANYNAME "zcas"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "ZCode 账号切换"
+    !define INFO_PRODUCTNAME "ZCS"
 !endif
 !ifndef INFO_PRODUCTVERSION
     !define INFO_PRODUCTVERSION "0.3.0"

@@ -3,7 +3,7 @@
 # 用法: scripts/build-dmg.sh [版本号]
 set -euo pipefail
 VERSION=${1:-0.3.0}
-APP="ZCode账号切换"
+APP="ZCS"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DMGDIR="$ROOT/dist/dmg-root"
 ARCH=${ARCH:-arm64}
@@ -13,7 +13,7 @@ mkdir -p "$DMGDIR"
 cp -R "$ROOT/app/build/bin/zcas.app" "$DMGDIR/$APP.app"
 ln -s /Applications "$DMGDIR/Applications"
 
-hdiutil create -volname "ZCode 账号切换 $VERSION" \
+hdiutil create -volname "ZCS $VERSION" \
   -srcfolder "$DMGDIR" -ov -format UDZO \
   "$ROOT/dist/zcas-$VERSION-macos-$ARCH.dmg"
 rm -rf "$DMGDIR"

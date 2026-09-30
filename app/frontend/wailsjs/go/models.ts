@@ -389,3 +389,26 @@ export namespace store {
 
 }
 
+export namespace update {
+	
+	export class Result {
+	    current: string;
+	    latest: string;
+	    hasUpdate: boolean;
+	    url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Result(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.current = source["current"];
+	        this.latest = source["latest"];
+	        this.hasUpdate = source["hasUpdate"];
+	        this.url = source["url"];
+	    }
+	}
+
+}
+

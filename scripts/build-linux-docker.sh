@@ -40,10 +40,11 @@ docker run --rm --platform "linux/$ARCH" \
   -v zcas-npm-$ARCH:/root/.npm \
   "$IMAGE" bash -c "
     set -e
+    export LC_ALL=C.UTF-8 LANG=C.UTF-8
     mkdir -p /build
     tar cf - --exclude=node_modules --exclude=dist -C /src . | tar xf - -C /build
     cd /build/app/frontend && npm ci --no-audit --no-fund
-    cd .. && wails build -clean -platform linux/$ARCH -o zcas-gui -tags webkit2_41
+    cd .. && wails build -clean -platform linux/$ARCH -o zcas-gui -tags webkit2_41 -ldflags '-X zcas/internal/update.Version='$VERSION
     cd .. && CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o /src/dist/linux-$ARCH/zcas ./cmd/zcas
     cp app/build/bin/zcas-gui /src/dist/linux-$ARCH/
   "
@@ -52,7 +53,7 @@ docker run --rm --platform "linux/$ARCH" \
 cp "$ROOT/app/build/linux/icon.png" "$OUT/icon.png"
 cat > "$OUT/zcas.desktop" <<'DESKTOP'
 [Desktop Entry]
-Name=ZCode 账号切换
+Name=ZCS
 Comment=ZCode 多账号切换工具
 Exec=zcas-gui
 Icon=zcas
@@ -69,10 +70,10 @@ sudo install -m755 zcas "$PREFIX/bin/zcas"
 sudo install -m755 zcas-gui "$PREFIX/bin/zcas-gui"
 sudo install -Dm644 zcas.desktop /usr/share/applications/zcas.desktop
 sudo install -Dm644 icon.png /usr/share/icons/hicolor/512x512/apps/zcas.png
-echo "✓ 完成：应用菜单搜「ZCode 账号切换」，终端用 zcas 命令"
+echo "✓ 完成：应用菜单搜「ZCS」，终端用 zcas 命令"
 echo "  如 GUI 无法启动，请先安装运行时: sudo apt install libwebkit2gtk-4.1-0"
 INSTALL
 chmod +x "$OUT/install.sh"
 
-tar czf "$ROOT/dist/zcas-$VERSION-linux-$ARCH.tar.gz" -C "$OUT" .
+LC_ALL=C tar czf "$ROOT/dist/zcas-$VERSION-linux-$ARCH.tar.gz" -C "$OUT" .
 echo "✅ $ROOT/dist/zcas-$VERSION-linux-$ARCH.tar.gz"

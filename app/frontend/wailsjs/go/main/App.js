@@ -10,6 +10,10 @@ export function Capture(arg1, arg2, arg3) {
   return window['go']['main']['App']['Capture'](arg1, arg2, arg3);
 }
 
+export function CheckUpdate() {
+  return window['go']['main']['App']['CheckUpdate']();
+}
+
 export function DeleteAccount(arg1) {
   return window['go']['main']['App']['DeleteAccount'](arg1);
 }
@@ -24,6 +28,10 @@ export function GetQuota(arg1) {
 
 export function GetState() {
   return window['go']['main']['App']['GetState']();
+}
+
+export function GetVersion() {
+  return window['go']['main']['App']['GetVersion']();
 }
 
 export function KillZCode() {

@@ -109,6 +109,21 @@ body {
     color: #8b949e;
 }
 
+
+/* 版本/更新弹窗的键值行 */
+.version-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 13px;
+    color: #8b949e;
+}
+
+.version-row b {
+    color: #e6edf3;
+    font-weight: 600;
+}
+
 /* ===== 徽标 ===== */
 .badge-live, .badge-unsaved {
     font-size: 11px;

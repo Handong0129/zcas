@@ -10,9 +10,10 @@
 # 换图标:
 #   scripts/make-icon.sh /path/to/新图标.png   （然后重新 make release）
 
-APP      := ZCode账号切换
+APP      := ZCS
 VERSION  ?= 0.3.0
 ARCH     ?= arm64
+LDFLAGS  := -X zcas/internal/update.Version=$(VERSION)
 DIST     := dist
 
 .PHONY: release release-mac release-windows release-linux cli app pkg dmg clean
@@ -27,7 +28,7 @@ cli:
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $(DIST)/cli/zcas ./cmd/zcas
 
 app:
-	cd app && wails build -clean -platform darwin/arm64
+	cd app && wails build -clean -platform darwin/arm64 -ldflags "$(LDFLAGS)"
 
 pkg: cli app
 	ARCH=arm64 bash scripts/build-pkg.sh $(VERSION)
@@ -37,7 +38,7 @@ dmg: app
 
 # ---------- Windows（WebView2 绑定是纯 Go，Mac 可交叉编译；NSIS 安装器用 brew 的 makensis）----------
 release-windows:
-	cd app && wails build -clean -platform windows/amd64 -o zcas-gui -nsis
+	cd app && LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 wails build -clean -platform windows/amd64 -o zcas-gui -nsis -ldflags "$(LDFLAGS)"
 	mkdir -p $(DIST)/windows-amd64
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $(DIST)/windows-amd64/zcas.exe ./cmd/zcas
 	cp app/build/bin/zcas-amd64-installer.exe $(DIST)/zcas-$(VERSION)-windows-amd64-installer.exe

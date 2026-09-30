@@ -18,6 +18,7 @@
 - **快照保鲜**：切换离开时自动把当前账号的最新 token 回写到它的快照，防 refresh token 过期搁浅
 - **回滚兜底**：每次切换前自动整文件备份，误操作一键回到切换前的登录态
 - **字段级快照**：只保存账号相关字段，切换时合并写回，不影响你的编辑器偏好与自定义 provider 配置
+- **版本与更新**：菜单栏「Help → Check for Updates…」查询 GitHub 新版本；macOS 用应用菜单原生 About 查看版本，Windows/Linux 在「Help → About ZCS」查看
 
 ## 界面
 
@@ -62,7 +63,7 @@ cd app && wails build              # GUI（需安装 wails CLI v2.16+）
 
 ### GUI
 
-打开「ZCode 账号切换」：
+打开「ZCS」：
 
 1. **添加账号** → 选「OAuth 登录新账号」，浏览器登录 z.ai 或 BigModel，完成自动入库
    （macOS 上浏览器会自动跳回工具；Windows/Linux 需把地址栏的 `zcode://…` 链接粘贴回工具）
@@ -108,7 +109,7 @@ ZCode 的登录态由 `~/.zcode/v2/` 下两份文件构成：`credentials.json`�
 
 ## 卸载
 
-- **macOS**：删除 `/Applications/ZCode账号切换.app` 和 `/usr/local/bin/zcas`
+- **macOS**：删除 `/Applications/ZCS.app` 和 `/usr/local/bin/zcas`
 - **Windows**：开始菜单卸载程序；CLI 删除解压目录
 - **Linux**：删除 `/usr/local/bin/zcas`、`/usr/local/bin/zcas-gui` 及对应桌面文件
 - 账号数据：`rm -rf ~/.zcas`（删除前请确认 ZCode 里已登录你要保留的账号）

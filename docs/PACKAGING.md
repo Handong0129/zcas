@@ -31,7 +31,7 @@ make release
 ### 收件人注意事项
 
 - **macOS（无开发者账号，未公证）**：首次打开右键 → 打开；或
-  `xattr -dr com.apple.quarantine /Applications/ZCode账号切换.app`。
+  `xattr -dr com.apple.quarantine /Applications/ZCS.app`。
 - **Windows**：未签名的 exe 可能被 SmartScreen 提示，选"仍要运行"。
   用户机器需有 WebView2 运行时（Win11 自带，Win10 大多已装）。
 - **Linux**：GUI 运行需要 `sudo apt install libwebkit2gtk-4.1-0`（install.sh 有提示）。

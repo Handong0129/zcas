@@ -16,6 +16,7 @@ import (
 	"zcas/internal/quota"
 	"zcas/internal/store"
 	"zcas/internal/switcher"
+	"zcas/internal/update"
 	"zcas/internal/zcrypto"
 )
 
@@ -285,3 +286,11 @@ func (a *App) GetQuota(id string) (*quota.Overview, error) {
 
 func (a *App) KillZCode() error  { return platform.KillZCode(8 * time.Second) }
 func (a *App) LaunchZCode() error { return platform.LaunchZCode() }
+
+// ===== 版本 / 更新 =====
+
+// GetVersion 当前应用版本（发布构建由 ldflags 注入，开发构建为 dev）。
+func (a *App) GetVersion() string { return update.Version }
+
+// CheckUpdate 查询 GitHub 是否有新版本。
+func (a *App) CheckUpdate() (*update.Result, error) { return update.Check() }

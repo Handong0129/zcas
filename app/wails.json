@@ -7,7 +7,7 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "info": {
-    "productName": "ZCode 账号切换",
+    "productName": "ZCS",
     "productVersion": "0.3.0",
     "copyright": "仅供学习研究和个人使用"
   },
