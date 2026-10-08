@@ -1,3 +1,66 @@
+export namespace buildinfo {
+	
+	export class Author {
+	    name: string;
+	    email: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Author(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.email = source["email"];
+	    }
+	}
+	export class Info {
+	    name: string;
+	    displayName: string;
+	    version: string;
+	    description: string;
+	    repository: string;
+	    pkgIdentifier: string;
+	    copyright: string;
+	    author: Author;
+	
+	    static createFrom(source: any = {}) {
+	        return new Info(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.displayName = source["displayName"];
+	        this.version = source["version"];
+	        this.description = source["description"];
+	        this.repository = source["repository"];
+	        this.pkgIdentifier = source["pkgIdentifier"];
+	        this.copyright = source["copyright"];
+	        this.author = this.convertValues(source["author"], Author);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace main {
 	
 	export class CaptureResult {
@@ -54,6 +117,22 @@ export namespace main {
 	        this.savedId = source["savedId"];
 	    }
 	}
+	export class HealthView {
+	    id: string;
+	    status: string;
+	    checkedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new HealthView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.status = source["status"];
+	        this.checkedAt = source["checkedAt"];
+	    }
+	}
 	export class OAuthResult {
 	    created: boolean;
 	    billingReady: boolean;
@@ -68,6 +147,40 @@ export namespace main {
 	        this.created = source["created"];
 	        this.billingReady = source["billingReady"];
 	        this.meta = this.convertValues(source["meta"], store.Meta);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ReAuthOutcome {
+	    meta?: store.Meta;
+	    liveRefreshed: boolean;
+	    zcodeRestarted: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReAuthOutcome(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.meta = this.convertValues(source["meta"], store.Meta);
+	        this.liveRefreshed = source["liveRefreshed"];
+	        this.zcodeRestarted = source["zcodeRestarted"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

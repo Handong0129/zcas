@@ -4,16 +4,19 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"zcas/internal/auth"
+	"zcas/internal/buildinfo"
 	"zcas/internal/config"
 	"zcas/internal/fingerprint"
 	"zcas/internal/platform"
 	"zcas/internal/quota"
+	"zcas/internal/session"
 	"zcas/internal/store"
 	"zcas/internal/switcher"
 	"zcas/internal/update"
@@ -22,6 +25,10 @@ import (
 
 // zcodeAppBundle 官方 ZCode 客户端的 .app 路径（协议归还目标）。
 const zcodeAppBundle = "/Applications/ZCode.app"
+
+// keepAliveInterval 保活巡检周期：距上次探测超过该时长的账号会被重新探测
+// （探测本身即保活尝试；服务端按闲置过期时可自动续命）。
+const keepAliveInterval = 20 * time.Hour
 
 // App 是 Wails 绑定层：只做参数转换 + 调 internal 包，不含业务逻辑。
 type App struct {
@@ -36,11 +43,15 @@ type oauthPending struct {
 	provider auth.Provider
 	name     string
 	note     string
+	reauthID string // 非空表示这是对已有账号的重新授权
 }
 
 func NewApp() *App { return &App{} }
 
-func (a *App) startup(ctx context.Context) { a.ctx = ctx }
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+	go a.runHealthKeeper()
+}
 
 // ===== 状态 =====
 
@@ -113,6 +124,10 @@ func (a *App) StartOAuth(providerID, name, note string) error {
 		return err
 	}
 	a.mu.Lock()
+	if a.oauth != nil {
+		a.mu.Unlock()
+		return fmt.Errorf("已有进行中的登录流程，请先完成或取消")
+	}
 	a.oauth = &oauthPending{state: state, provider: p, name: name, note: note}
 	a.mu.Unlock()
 	// 临时接管 zcode://（仅在打包成 .app 运行时有效）
@@ -144,6 +159,10 @@ func (a *App) handleOpenURL(raw string) {
 	}
 	if cbState != "" && cbState != p.state {
 		return // 非本次会话的回调，静默丢弃
+	}
+	if p.reauthID != "" {
+		a.finishReOAuth(code, p)
+		return
 	}
 	a.finishOAuth(code, p)
 }
@@ -187,6 +206,9 @@ func (a *App) FinishOAuth(input, name, note string) (*OAuthResult, error) {
 	if p == nil {
 		return nil, fmt.Errorf("请先点击「打开浏览器登录」")
 	}
+	if p.reauthID != "" {
+		return nil, fmt.Errorf("当前有正在进行的重新授权，请在账号行内完成或取消后再添加账号")
+	}
 	code, cbState, err := auth.ParseCallbackInput(input)
 	if err != nil {
 		return nil, err
@@ -219,6 +241,174 @@ func (a *App) CancelOAuth() {
 	}
 }
 
+// ===== 重新授权（会话过期的账号刷新登录态） =====
+
+// StartReOAuth 对指定账号发起重新授权：自动识别渠道、接管回调协议、打开浏览器。
+func (a *App) StartReOAuth(id string) error {
+	meta, snap, err := store.Load(id)
+	if err != nil {
+		return err
+	}
+	p := auth.ProviderFromSnapshot(snap, zcrypto.DefaultSecret())
+	state, err := auth.NewState()
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	if a.oauth != nil {
+		a.mu.Unlock()
+		return fmt.Errorf("已有进行中的登录流程，请先完成或取消")
+	}
+	a.oauth = &oauthPending{state: state, provider: p, reauthID: meta.ID}
+	a.mu.Unlock()
+	if bp := selfBundlePath(); bp != "" {
+		setDefaultURLHandler("zcode", bp)
+	}
+	return platform.OpenURL(auth.BuildAuthorizeURL(p, state))
+}
+
+// FinishReOAuth 兑底路径：粘贴回调链接完成重新授权。
+func (a *App) FinishReOAuth(input string) (*ReAuthOutcome, error) {
+	a.mu.Lock()
+	p := a.oauth
+	a.mu.Unlock()
+	if p == nil || p.reauthID == "" {
+		return nil, fmt.Errorf("请先点击「重新授权」打开浏览器")
+	}
+	code, cbState, err := auth.ParseCallbackInput(input)
+	if err != nil {
+		return nil, err
+	}
+	if cbState != "" && cbState != p.state {
+		return nil, fmt.Errorf("回调 state 不匹配（可能粘贴了旧的链接），请重新发起授权")
+	}
+	return a.doReAuth(code, p)
+}
+
+// finishReOAuth 协议回调自动完成路径，事件通知前端。
+func (a *App) finishReOAuth(code string, p *oauthPending) {
+	out, err := a.doReAuth(code, p)
+	if err != nil {
+		wruntime.EventsEmit(a.ctx, "oauth:error", err.Error())
+		return
+	}
+	wruntime.WindowShow(a.ctx)
+	wruntime.EventsEmit(a.ctx, "oauth:done", map[string]any{
+		"reauth":         true,
+		"id":             out.Meta.ID,
+		"label":          out.Meta.Label,
+		"liveRefreshed":  out.LiveRefreshed,
+		"zcodeRestarted": out.ZCodeRestarted,
+	})
+}
+
+// doReAuth 换 token 并覆盖更新目标账号快照。
+// 若目标账号正是当前 ZCode 登录的账号，同时把新登录态写入 live 文件并重启 ZCode
+// （否则 ZCode 还拿着旧 token，套餐查询依旧失败，用户也不用手动切出去再切回来）。
+type ReAuthOutcome struct {
+	Meta           *store.Meta `json:"meta"`
+	LiveRefreshed  bool        `json:"liveRefreshed"`
+	ZCodeRestarted bool        `json:"zcodeRestarted"`
+}
+
+func (a *App) doReAuth(code string, p *oauthPending) (*ReAuthOutcome, error) {
+	ts, err := auth.ExchangeCode(p.provider, code, p.state)
+	if err != nil {
+		return nil, err
+	}
+	meta, err := auth.UpdateAccount(p.provider, ts, p.reauthID, config.Load())
+	if err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	a.oauth = nil
+	a.mu.Unlock()
+	a.restoreScheme()
+
+	out := &ReAuthOutcome{Meta: meta}
+	if a.liveAccountIs(meta.ID) {
+		if res, err := switcher.RefreshLive(meta.ID); err == nil {
+			out.LiveRefreshed = true
+			out.ZCodeRestarted = res.Restarted
+		}
+		// 刷新失败不报错：快照已是新的，下次切换到该账号自然生效
+	}
+	// 新会话立即探测一次，前端拿到最新健康状态（重新授权按钮随之消失）
+	go func() {
+		all := session.Sweep(0)
+		wruntime.EventsEmit(a.ctx, "health:updated", healthList(all))
+	}()
+	return out, nil
+}
+
+// liveAccountIs 判断当前 ZCode 实时登录态是否就是指定账号。
+func (a *App) liveAccountIs(id string) bool {
+	cred, cfg, err := store.ReadLive()
+	if err != nil || !hasSession(cred) {
+		return false
+	}
+	fp := fingerprint.Extract(cred, cfg, zcrypto.DefaultSecret())
+	if fp == nil {
+		return false
+	}
+	if fp.EmailShortID == id {
+		return true
+	}
+	meta, _, err := store.Load(id)
+	if err != nil || meta.UserID == "" {
+		return false
+	}
+	return fp.UserID == meta.UserID
+}
+
+// ===== 会话健康检测 / 保活 =====
+
+// HealthView 账号会话健康状态的绑定层视图。
+// 用切片而非 map 返回：wails 只为直接返回/切片元素类型生成 TS class，map 值类型不生成。
+type HealthView struct {
+	ID        string `json:"id"`
+	Status    string `json:"status"`
+	CheckedAt int64  `json:"checkedAt"`
+}
+
+func healthList(all map[string]session.Report) []HealthView {
+	out := make([]HealthView, 0, len(all))
+	for id, r := range all {
+		out = append(out, HealthView{ID: id, Status: string(r.Status), CheckedAt: r.CheckedAt})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// GetHealth 读取缓存的账号会话健康状态（不发网络请求，立即返回）。
+func (a *App) GetHealth() []HealthView { return healthList(session.LoadAll()) }
+
+// CheckHealthNow 立即探测所有账号的会话状态（网络请求，前端异步调用）。
+func (a *App) CheckHealthNow() []HealthView { return healthList(session.Sweep(0)) }
+
+// runHealthKeeper 后台保活巡检：启动后先巡检一轮，之后每小时检查一次，
+// 对距上次探测超过 keepAliveInterval 的账号重新探测（探测即保活）。
+func (a *App) runHealthKeeper() {
+	time.Sleep(3 * time.Second) // 避开启动高峰
+	a.emitHealth(session.Sweep(keepAliveInterval))
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			a.emitHealth(session.Sweep(keepAliveInterval))
+		}
+	}
+}
+
+func (a *App) emitHealth(all map[string]session.Report) {
+	if a.ctx != nil {
+		wruntime.EventsEmit(a.ctx, "health:updated", healthList(all))
+	}
+}
+
 // ===== 切换 / 回滚 =====
 
 type UseResult struct {
@@ -244,7 +434,13 @@ func (a *App) Rollback() error { return switcher.Rollback(true) }
 
 // ===== 账号管理 =====
 
-func (a *App) DeleteAccount(id string) error { return store.Delete(id) }
+func (a *App) DeleteAccount(id string) error {
+	if err := store.Delete(id); err != nil {
+		return err
+	}
+	session.Forget(id)
+	return nil
+}
 
 func (a *App) RenameAccount(id, label string) error {
 	_, err := store.Rename(id, label, "")
@@ -289,8 +485,8 @@ func (a *App) LaunchZCode() error { return platform.LaunchZCode() }
 
 // ===== 版本 / 更新 =====
 
-// GetVersion 当前应用版本（发布构建由 ldflags 注入，开发构建为 dev）。
-func (a *App) GetVersion() string { return update.Version }
+// GetAppInfo 应用信息（名称/版本/仓库，「关于」弹窗用），源自内嵌全局配置。
+func (a *App) GetAppInfo() buildinfo.Info { return buildinfo.Current }
 
 // CheckUpdate 查询 GitHub 是否有新版本。
 func (a *App) CheckUpdate() (*update.Result, error) { return update.Check() }

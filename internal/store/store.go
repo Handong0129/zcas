@@ -79,6 +79,9 @@ func snapPath(id string) (string, error) {
 	return filepath.Join(paths.StoreDir(), id+".snap.json"), nil
 }
 
+// SnapPath 账号快照文件路径（供保鲜备份等外部调用）。
+func SnapPath(id string) (string, error) { return snapPath(id) }
+
 // ===== 登录态读写 =====
 
 // HasSession 判定 credentials 里是否存在有效登录会话。
@@ -397,6 +400,11 @@ func WriteBackCurrent() (string, error) {
 			return "", fmt.Errorf("zcodejwttoken 解密校验失败，跳过回写: %w", err)
 		}
 	}
+	// 防倒灌：快照里的 token 比 live 的更新（刚重新授权过）时跳过回写，
+	// 否则旧的 live 登录态会把快照里新授权的 token 覆盖掉
+	if tokenIAT(oldSnap.CredentialFields["zcodejwttoken"], secret) > tokenIAT(tok, secret) {
+		return "", nil
+	}
 	// 备份旧快照再覆盖
 	sp, _ := snapPath(id)
 	if b, err := json.Marshal(oldSnap); err == nil {
@@ -407,6 +415,29 @@ func WriteBackCurrent() (string, error) {
 		return "", err
 	}
 	return id, nil
+}
+
+// tokenIAT 解密凭据字段并取 JWT 的 iat（签发时间，秒）；非 JWT / 无 iat / 解密失败返回 0。
+func tokenIAT(encTok, secret string) int64 {
+	if encTok == "" {
+		return 0
+	}
+	plain := encTok
+	if zcrypto.IsEncrypted(plain) {
+		p, err := zcrypto.Decrypt(plain, secret)
+		if err != nil {
+			return 0
+		}
+		plain = p
+	}
+	payload := fingerprint.DecodeJWT(plain)
+	if payload == nil {
+		return 0
+	}
+	if v, ok := payload["iat"].(float64); ok {
+		return int64(v)
+	}
+	return 0
 }
 
 // ===== .last 备份（整文件，恢复现场用）=====

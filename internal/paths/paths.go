@@ -36,3 +36,6 @@ func BackupDir() string { return filepath.Join(DataDir(), ".last") }
 
 // ConfigPath 工具配置文件（billing 参数等可热更新项）。
 func ConfigPath() string { return filepath.Join(DataDir(), "config.json") }
+
+// HealthFile 账号会话健康状态缓存文件。
+func HealthFile() string { return filepath.Join(DataDir(), "health.json") }

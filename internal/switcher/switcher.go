@@ -84,3 +84,40 @@ func Rollback(restart bool) error {
 	}
 	return nil
 }
+
+// RefreshLive 把账号快照直接写入当前登录态（重新授权当前登录账号后调用），
+// ZCode 运行中则先关闭、写完后重启。与 Use 的区别：不做保鲜回写——
+// 快照刚被新 token 覆盖，回写反而会把旧的 live 状态写回快照（倒灌污染）。
+func RefreshLive(id string) (*Result, error) {
+	meta, snap, err := store.Load(id)
+	if err != nil {
+		return nil, err
+	}
+	wasRunning := platform.IsZCodeRunning()
+	if wasRunning {
+		if err := platform.KillZCode(killTimeout); err != nil {
+			return nil, err
+		}
+	}
+	if err := store.BackupLast(); err != nil {
+		return nil, fmt.Errorf("备份当前登录态失败: %w", err)
+	}
+	cred, cfg, err := store.ReadLive()
+	if err != nil {
+		cred, cfg = map[string]any{}, map[string]any{}
+	}
+	newCred, newCfg := store.Apply(snap, cred, cfg)
+	if err := store.WriteLive(newCred, newCfg); err != nil {
+		_ = store.RestoreLast()
+		return nil, fmt.Errorf("写入登录态失败，已自动回滚: %w", err)
+	}
+	res := &Result{Account: meta}
+	if wasRunning {
+		if err := platform.LaunchZCode(); err != nil {
+			res.WriteBackErr = fmt.Errorf("启动 ZCode 失败（登录态已刷新）: %w", err)
+		} else {
+			res.Restarted = true
+		}
+	}
+	return res, nil
+}

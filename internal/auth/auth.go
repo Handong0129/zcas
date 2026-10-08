@@ -27,6 +27,7 @@ import (
 
 	"zcas/internal/config"
 	"zcas/internal/fingerprint"
+	"zcas/internal/fsutil"
 	"zcas/internal/quota"
 	"zcas/internal/store"
 	"zcas/internal/zcrypto"
@@ -198,40 +199,10 @@ func AddAccount(p Provider, ts *TokenSet, label, note string, cfg *config.Config
 		return nil, false, false, errors.New("缺少 token（zcode JWT）")
 	}
 	secret := zcrypto.DefaultSecret()
-	enc := func(s string) (string, error) {
-		if s == "" {
-			return "", nil
-		}
-		return zcrypto.Encrypt(s, secret)
-	}
 
 	// 构造 credentials 账号字段
-	fields := map[string]string{}
-	set := func(k, plain string) error {
-		v, err := enc(plain)
-		if err != nil {
-			return err
-		}
-		if v != "" {
-			fields[k] = v
-		}
-		return nil
-	}
-	if err = set("oauth:active_provider", p.ID); err != nil {
-		return
-	}
-	if err = set("oauth:"+p.ID+":access_token", ts.ZaiAccessToken); err != nil {
-		return
-	}
-	if err = set("oauth:"+p.ID+":refresh_token", ts.RefreshToken); err != nil {
-		return
-	}
-	if err = set("zcodejwttoken", ts.Token); err != nil {
-		return
-	}
-	userInfo := officialUserProfile(ts.User, p.ID)
-	uiJSON, _ := json.Marshal(userInfo)
-	if err = set("oauth:"+p.ID+":user_info", string(uiJSON)); err != nil {
+	fields, err := credentialFields(p, ts, secret)
+	if err != nil {
 		return
 	}
 
@@ -286,6 +257,160 @@ func AddAccount(p Provider, ts *TokenSet, label, note string, cfg *config.Config
 	// 服务端异步处理，快速轮询没就绪也正常，首次查询时 quota 层会自动退避重试）
 	billingReady = TriggerBusinessLogin(ts.ZaiAccessToken, ts.Token, cfg)
 	return meta, true, billingReady, nil
+}
+
+// UpdateAccount 重新授权：用新 tokenSet 覆盖更新已有账号的快照（重新授权入口）。
+// 名称/备注/抓取时间等元数据保留，只刷新登录态字段；身份不一致时拒绝（防串号）。
+func UpdateAccount(p Provider, ts *TokenSet, id string, cfg *config.Config) (*store.Meta, error) {
+	if ts == nil || ts.Token == "" {
+		return nil, errors.New("缺少 token（zcode JWT）")
+	}
+	meta, oldSnap, err := store.Load(id)
+	if err != nil {
+		return nil, fmt.Errorf("目标账号不存在: %w", err)
+	}
+	secret := zcrypto.DefaultSecret()
+
+	fields, err := credentialFields(p, ts, secret)
+	if err != nil {
+		return nil, err
+	}
+
+	// 槽位优先沿用该账号旧快照的结构（models/baseURL 等与首次登录时一致），
+	// 只替换 apiKey；旧快照没有的槽位再用 live config 模板补
+	fresh := buildProviderSlots(p, ts.Token)
+	slots := map[string]json.RawMessage{}
+	for _, slotID := range p.Slots {
+		var slot map[string]any
+		if raw, ok := oldSnap.ProviderSlots[slotID]; ok && len(raw) > 0 {
+			if json.Unmarshal(raw, &slot) == nil && slot != nil {
+				opts, _ := slot["options"].(map[string]any)
+				if opts == nil {
+					opts = map[string]any{}
+				}
+				opts["apiKey"] = ts.Token
+				slot["enabled"] = true
+				slot["options"] = opts
+			}
+		}
+		if slot == nil {
+			// buildProviderSlots 已写好 apiKey，反序列化复用
+			var m map[string]any
+			if raw, ok := fresh[slotID]; ok {
+				_ = json.Unmarshal(raw, &m)
+			}
+			slot = m
+		}
+		if slot == nil {
+			continue
+		}
+		raw, _ := json.Marshal(slot)
+		slots[slotID] = raw
+	}
+
+	// 指纹与身份校验：新授权必须是同一个账号（按去重 id 或稳定 user_id 匹配）
+	credMap := map[string]any{}
+	for k, v := range fields {
+		credMap[k] = v
+	}
+	providerMap := map[string]any{}
+	for slotID, raw := range slots {
+		var slot map[string]any
+		_ = json.Unmarshal(raw, &slot)
+		providerMap[slotID] = slot
+	}
+	fp := fingerprint.Extract(credMap, map[string]any{"provider": providerMap}, secret)
+	if fp == nil {
+		return nil, errors.New("无法从 token 中提取账号指纹")
+	}
+	if fp.EmailShortID != id && (meta.UserID == "" || fp.UserID != meta.UserID) {
+		return nil, fmt.Errorf("授权的是账号「%s」，与目标账号「%s」不一致，请确认浏览器里登录的是目标账号", fp.Label, meta.Label)
+	}
+
+	// 备份旧快照再覆盖（与保鲜回写一致）
+	sp, err := store.SnapPath(id)
+	if err != nil {
+		return nil, err
+	}
+	if b, err := json.Marshal(oldSnap); err == nil {
+		_ = fsutil.WriteFileAtomic(sp+".bak", b, 0o600)
+	}
+	meta.UpdatedAt = time.Now().UnixMilli()
+	snap := &store.Snapshot{
+		Version:          store.SnapshotVersion,
+		CredentialFields: fields,
+		ProviderSlots:    slots,
+	}
+	if err := store.Save(meta, snap); err != nil {
+		return nil, err
+	}
+
+	// 服务端 billing 初始化对已有账号无需阻塞等待，后台补一次即可
+	go func() { _ = TriggerBusinessLogin(ts.ZaiAccessToken, ts.Token, cfg) }()
+	return meta, nil
+}
+
+// ProviderFromSnapshot 从快照凭据推断登录渠道（重新授权时自动选渠道用）。
+func ProviderFromSnapshot(snap *store.Snapshot, secret string) Provider {
+	p, _ := ParseProvider("zai")
+	if snap == nil {
+		return p
+	}
+	raw := snap.CredentialFields["oauth:active_provider"]
+	if raw == "" {
+		return p
+	}
+	if !zcrypto.IsEncrypted(raw) {
+		if v, err := ParseProvider(raw); err == nil {
+			return v
+		}
+		return p
+	}
+	if plain, err := zcrypto.Decrypt(raw, secret); err == nil {
+		if v, err := ParseProvider(plain); err == nil {
+			return v
+		}
+	}
+	return p
+}
+
+// credentialFields 构造 credentials.json 的账号字段（enc:v1 密文）。
+func credentialFields(p Provider, ts *TokenSet, secret string) (map[string]string, error) {
+	enc := func(s string) (string, error) {
+		if s == "" {
+			return "", nil
+		}
+		return zcrypto.Encrypt(s, secret)
+	}
+	fields := map[string]string{}
+	set := func(k, plain string) error {
+		v, err := enc(plain)
+		if err != nil {
+			return err
+		}
+		if v != "" {
+			fields[k] = v
+		}
+		return nil
+	}
+	if err := set("oauth:active_provider", p.ID); err != nil {
+		return nil, err
+	}
+	if err := set("oauth:"+p.ID+":access_token", ts.ZaiAccessToken); err != nil {
+		return nil, err
+	}
+	if err := set("oauth:"+p.ID+":refresh_token", ts.RefreshToken); err != nil {
+		return nil, err
+	}
+	if err := set("zcodejwttoken", ts.Token); err != nil {
+		return nil, err
+	}
+	userInfo := officialUserProfile(ts.User, p.ID)
+	uiJSON, _ := json.Marshal(userInfo)
+	if err := set("oauth:"+p.ID+":user_info", string(uiJSON)); err != nil {
+		return nil, err
+	}
+	return fields, nil
 }
 
 // TriggerBusinessLogin POST api.z.ai/api/auth/z/login 触发服务端初始化 billing plan，

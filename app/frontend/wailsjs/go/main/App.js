@@ -10,6 +10,10 @@ export function Capture(arg1, arg2, arg3) {
   return window['go']['main']['App']['Capture'](arg1, arg2, arg3);
 }
 
+export function CheckHealthNow() {
+  return window['go']['main']['App']['CheckHealthNow']();
+}
+
 export function CheckUpdate() {
   return window['go']['main']['App']['CheckUpdate']();
 }
@@ -22,16 +26,24 @@ export function FinishOAuth(arg1, arg2, arg3) {
   return window['go']['main']['App']['FinishOAuth'](arg1, arg2, arg3);
 }
 
+export function FinishReOAuth(arg1) {
+  return window['go']['main']['App']['FinishReOAuth'](arg1);
+}
+
+export function GetAppInfo() {
+  return window['go']['main']['App']['GetAppInfo']();
+}
+
+export function GetHealth() {
+  return window['go']['main']['App']['GetHealth']();
+}
+
 export function GetQuota(arg1) {
   return window['go']['main']['App']['GetQuota'](arg1);
 }
 
 export function GetState() {
   return window['go']['main']['App']['GetState']();
-}
-
-export function GetVersion() {
-  return window['go']['main']['App']['GetVersion']();
 }
 
 export function KillZCode() {
@@ -52,6 +64,10 @@ export function Rollback() {
 
 export function StartOAuth(arg1, arg2, arg3) {
   return window['go']['main']['App']['StartOAuth'](arg1, arg2, arg3);
+}
+
+export function StartReOAuth(arg1) {
+  return window['go']['main']['App']['StartReOAuth'](arg1);
 }
 
 export function Use(arg1) {

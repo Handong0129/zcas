@@ -1,7 +1,8 @@
-import React, {useCallback, useEffect, useState} from 'react'
+import React, {useCallback, useEffect, useRef, useState} from 'react'
 import {
-    Capture, CheckUpdate, DeleteAccount, FinishOAuth, GetQuota, GetState,
-    GetVersion, RenameAccount, Rollback, StartOAuth, CancelOAuth, Use,
+    CancelOAuth, Capture, CheckHealthNow, CheckUpdate, DeleteAccount, FinishOAuth,
+    FinishReOAuth, GetAppInfo, GetHealth, GetQuota, GetState, RenameAccount, Rollback,
+    StartOAuth, StartReOAuth, Use,
 } from '../wailsjs/go/main/App'
 import {BrowserOpenURL, EventsOn} from '../wailsjs/runtime/runtime'
 
@@ -42,6 +43,7 @@ const TIPS = {
     validPeriod: '当前计费周期的结束时间（季付/年付的下一续费日）',
     fiveHourCard: '5小时重置卡：立即重置「每5小时」窗口的已用量',
     weekCard: '周重置卡：立即重置「每周」额度的已用量',
+    sessionExpired: '该账号的登录会话（oauth token）已在服务端过期，切换后 ZCode 会提示「套餐查询失败」。写代码不受影响（用的是长效凭证），需要点击「重新授权」刷新登录态',
 }
 
 // providerLabel 把内部渠道槽位 ID 映射成可读名称
@@ -191,17 +193,16 @@ function ConfirmDialog({text, onOk, onCancel}) {
 
 
 
-// VersionModal 查看版本
-function VersionModal({version, onClose}) {
+// VersionModal 关于弹窗（数据来自后端内嵌的全局配置）
+function VersionModal({info, onClose}) {
     return (
         <div className="modal-mask" onClick={onClose}>
             <div className="modal modal-sm" onClick={e => e.stopPropagation()}>
-                <h3 className="help-title">关于 ZCS</h3>
-                <div className="version-row"><span>当前版本</span><b>v{version}</b></div>
-                <div className="version-row"><span>项目地址</span><b>github.com/Handong0129/zcas</b></div>
+                <h3 className="help-title">关于 {info.displayName}</h3>
+                <div className="version-row"><span>当前版本</span><b>v{info.version}</b></div>
+                <div className="version-row"><span>项目地址</span><b>{info.repository.replace('https://', '')}</b></div>
                 <div className="confirm-actions">
-                    <button className="btn" onClick={() => BrowserOpenURL('https://github.com/Handong0129/zcas')}>
-                        项目主页</button>
+                    <button className="btn" onClick={() => BrowserOpenURL(info.repository)}>项目主页</button>
                     <button className="btn btn-primary" onClick={onClose}>关闭</button>
                 </div>
             </div>
@@ -254,6 +255,7 @@ function HelpModal({onClose}) {
         ['有效期至', TIPS.validPeriod],
         ['⚡ 5小时重置卡', TIPS.fiveHourCard],
         ['📅 周重置卡', TIPS.weekCard],
+        ['会话过期', '该账号的 BigModel/z.ai 登录会话已在服务端过期，ZCode 里会提示「套餐查询失败」。写代码不受影响（用长效凭证）；点击账号上的「重新授权」重新走一次浏览器授权即可恢复，之后后台会定期保活以减少再次过期的概率'],
     ]
     return (
         <div className="modal-mask" onClick={onClose}>
@@ -275,11 +277,32 @@ function HelpModal({onClose}) {
     )
 }
 
-// AccountRow 一行一个账号：左侧信息（额度内容多少不定），操作按钮固定右上角
-function AccountRow({meta, isCurrent, quotaState, onRefreshQuota, onAction, notify, askConfirm}) {
+// indexHealth 把后端的健康状态列表转成按账号 id 索引的对象
+function indexHealth(list) {
+    const out = {}
+    ;(list || []).forEach(r => {
+        out[r.id] = r
+    })
+    return out
+}
+
+// reauthDoneMsg 重新授权完成的提示文案（是否刷新了当前登录态、是否重启了 ZCode）
+function reauthDoneMsg(label, liveRefreshed, restarted) {
+    if (liveRefreshed) {
+        return `已重新授权 ${label}，当前登录态已刷新${restarted ? '，ZCode 已重启' : ''}`
+    }
+    return `已重新授权 ${label}，登录态已更新（下次切换生效）`
+}
+
+// AccountRow 一行一个账号：左侧信息（额度内容多少不定），操作按钮固定右上角。
+// health: 会话健康报告（undefined=未检测）；reauthActive: 该行正处于重新授权等待回调状态
+function AccountRow({meta, isCurrent, quotaState, onRefreshQuota, onAction, notify, askConfirm,
+                         health, reauthActive, onStartReauth, onFinishReauth, onCancelReauth}) {
     const [busy, setBusy] = useState('')
     const [renaming, setRenaming] = useState(false)
     const [newName, setNewName] = useState(meta.label)
+    const [callback, setCallback] = useState('')
+    const expired = health?.status === 'expired'
 
     const run = async (name, fn) => {
         setBusy(name)
@@ -313,6 +336,7 @@ function AccountRow({meta, isCurrent, quotaState, onRefreshQuota, onAction, noti
                               title="双击重命名">{meta.label}</span>
                     )}
                     {isCurrent && <span className="badge-live">当前登录</span>}
+                    {expired && <span className="badge-expired" title={TIPS.sessionExpired}>会话过期</span>}
                 </div>
                 <div className="row-meta">
                     <span className="meta-provider" title={TIPS.provider(meta.provider)}>{providerLabel(meta.provider)}</span>
@@ -323,20 +347,55 @@ function AccountRow({meta, isCurrent, quotaState, onRefreshQuota, onAction, noti
                     {meta.note && <span className="meta-note" title={meta.note}>💬 {meta.note}</span>}
                 </div>
                 <QuotaView qs={quotaState}/>
+                {reauthActive && (
+                    <div className="reauth-panel">
+                        <p className="hint">已打开浏览器等待授权，完成后会自动跳回并更新登录态。
+                            请确认浏览器里登录的是「{meta.label}」，不是的话先在网页上切换登录。
+                            若跳转到了 ZCode 客户端，请复制地址栏链接粘贴到下方：</p>
+                        <textarea rows={2} value={callback} onChange={e => setCallback(e.target.value)}
+                                  placeholder="zcode://oauth/callback?authCode=...&state=..."/>
+                        <div className="reauth-actions">
+                            <button className="btn btn-primary" disabled={!!busy || !callback.trim()}
+                                    onClick={() => run('reauth', async () => {
+                                        await onFinishReauth(callback)
+                                        setCallback('')
+                                    })}>
+                                {busy === 'reauth' ? '正在授权…' : '完成授权'}
+                            </button>
+                            <button className="btn" disabled={!!busy} onClick={() => {
+                                setCallback('')
+                                onCancelReauth()
+                            }}>取消</button>
+                        </div>
+                    </div>
+                )}
             </div>
             <div className="row-actions">
                 <button className="btn btn-primary" disabled={!!busy || isCurrent}
-                        onClick={() => run('use', async () => {
-                            const r = await Use(meta.id)
-                            notify(`已切换到 ${r.label}${r.restarted ? '，ZCode 已重启' : ''}`)
-                            onAction()
-                        })}>
+                        onClick={() => {
+                            const doUse = () => run('use', async () => {
+                                const r = await Use(meta.id)
+                                notify(`已切换到 ${r.label}${r.restarted ? '，ZCode 已重启' : ''}`)
+                                onAction()
+                            })
+                            if (expired) {
+                                askConfirm(`账号「${meta.label}」的登录会话已过期，切换后 ZCode 的套餐/用量查询会失败（写代码不受影响）。仍要切换吗？`, doUse)
+                            } else {
+                                doUse()
+                            }
+                        }}>
                     {busy === 'use' ? '切换中…' : '切换'}
                 </button>
                 <button className="btn" disabled={!!busy || quotaState?.loading}
                         onClick={() => onRefreshQuota(meta.id)}>
                     {quotaState?.loading ? '查询中…' : '刷新额度'}
                 </button>
+                {expired && !reauthActive &&
+                    <button className="btn btn-warn" disabled={!!busy}
+                            title="该账号登录会话已过期，重新走一次浏览器授权即可恢复"
+                            onClick={() => run('reauth-start', async () => {
+                                await onStartReauth(meta.id)
+                            })}>重新授权</button>}
                 <button className="btn" disabled={!!busy} onClick={() => setRenaming(true)}>改名</button>
                 <button className="btn btn-danger" disabled={!!busy}
                         onClick={() => askConfirm(`确定删除账号「${meta.label}」的快照？`,
@@ -390,6 +449,7 @@ function AddAccountModal({onClose, onDone, notify}) {
     // 监听浏览器回调自动完成事件（协议接管成功时，无需任何手动操作）
     useEffect(() => {
         const offDone = EventsOn('oauth:done', (r) => {
+            if (r?.reauth) return // 重新授权流程的事件由主界面处理
             notify(r.created
                 ? `已添加账号 ${r.label}${r.billingReady ? '' : '（额度初始化中，稍后查询）'}`
                 : `该账号已存在（${r.label}）`)
@@ -528,10 +588,15 @@ export default function App() {
     const [showHelp, setShowHelp] = useState(false)
     const [showVersion, setShowVersion] = useState(false)
     const [showUpdate, setShowUpdate] = useState(false)
-    const [version, setVersion] = useState('')
+    const [info, setInfo] = useState(null) // 全局配置（名称/版本/仓库）
     const [toast, setToast] = useState(null)
     const [quotas, setQuotas] = useState({}) // key: 'current' 或账号 id → {loading, data, error}
     const [confirm, setConfirm] = useState(null) // {text, action}
+    const [health, setHealth] = useState({}) // 账号 id → {status, checkedAt}
+    const [reauthID, setReauthID] = useState(null) // 正在重新授权的账号 id
+    // oauth:error 事件监听注册一次，用 ref 读最新的 reauthID（避免闭包旧值）
+    const reauthRef = useRef(null)
+    reauthRef.current = reauthID
 
     const notify = useCallback((msg, type = 'ok') => {
         setToast({msg, type})
@@ -563,16 +628,55 @@ export default function App() {
         }
     }, [loadQuota, notify])
 
+    // ===== 重新授权流程 =====
+    const startReauth = useCallback(async (id) => {
+        await StartReOAuth(id)
+        setReauthID(id)
+        notify('已打开浏览器，完成授权后会自动更新登录态')
+    }, [notify])
+
+    const finishReauth = useCallback(async (input) => {
+        const r = await FinishReOAuth(input) // 失败抛错（身份不一致等），保留等待状态让用户重试
+        setReauthID(null)
+        notify(reauthDoneMsg(r.meta?.label || '账号', r.liveRefreshed, r.zcodeRestarted))
+        refresh()
+    }, [notify, refresh])
+
+    const cancelReauth = useCallback(async () => {
+        try {
+            await CancelOAuth()
+        } catch (e) { /* 忽略 */ }
+        setReauthID(null)
+    }, [])
+
     useEffect(() => {
         refresh()
-        GetVersion().then(setVersion).catch(() => {})
+        GetAppInfo().then(setInfo).catch(() => {})
+        // 会话健康：先显示缓存，再后台探测刷新（结果也由保活巡检事件推送）
+        GetHealth().then(l => setHealth(indexHealth(l))).catch(() => {})
+        CheckHealthNow().then(l => setHealth(indexHealth(l))).catch(() => {})
         // 菜单栏「帮助 → 检查更新 / 关于」（非 macOS 平台有「关于」项）
         const offUpdate = EventsOn('menu:check-update', () => setShowUpdate(true))
         const offAbout = EventsOn('menu:about', () => setShowVersion(true))
+        const offHealth = EventsOn('health:updated', l => setHealth(indexHealth(l)))
+        // 重新授权协议回调自动完成（r.reauth 标记区分于添加账号）
+        const offOauthDone = EventsOn('oauth:done', r => {
+            if (!r?.reauth) return
+            setReauthID(null)
+            notify(reauthDoneMsg(r.label, r.liveRefreshed, r.zcodeRestarted))
+            refresh()
+        })
+        const offOauthErr = EventsOn('oauth:error', msg => {
+            if (reauthRef.current != null) notify(String(msg), 'error') // 添加账号弹窗有自己的错误提示
+        })
         return () => {
             offUpdate()
             offAbout()
+            offHealth()
+            offOauthDone()
+            offOauthErr()
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [refresh])
 
     const currentId = state?.current?.savedId || null
@@ -612,14 +716,19 @@ export default function App() {
                                 isCurrent={currentId === m.id}
                                 quotaState={quotas[m.id]}
                                 onRefreshQuota={loadQuota}
-                                onAction={refresh} notify={notify} askConfirm={askConfirm}/>
+                                onAction={refresh} notify={notify} askConfirm={askConfirm}
+                                health={health[m.id]}
+                                reauthActive={reauthID === m.id}
+                                onStartReauth={startReauth}
+                                onFinishReauth={finishReauth}
+                                onCancelReauth={cancelReauth}/>
                 ))}
                 {!showGuestRow && state?.accounts?.length === 0 &&
                     <p className="empty">还没有保存的账号。点击右上角「添加账号」，或在 ZCode 登录后使用「抓取当前登录」。</p>}
             </main>
 
             {showHelp && <HelpModal onClose={() => setShowHelp(false)}/>}
-            {showVersion && <VersionModal version={version} onClose={() => setShowVersion(false)}/>}
+            {showVersion && info && <VersionModal info={info} onClose={() => setShowVersion(false)}/>}
             {showUpdate && <UpdateModal onClose={() => setShowUpdate(false)}/>}
             {showAdd && <AddAccountModal onClose={() => setShowAdd(false)}
                                          onDone={() => {
