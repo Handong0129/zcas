@@ -4,8 +4,9 @@
 # 用法: scripts/build-linux-docker.sh [arm64|amd64] [版本号]
 set -euo pipefail
 ARCH=${1:-arm64}
-VERSION=${2:-0.3.0}
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+bash "$ROOT/scripts/sync-config.sh"  # wails.json 是容器内 wails build 的输入，先派生
+VERSION=${2:-$(python3 "$ROOT/scripts/config.py" version)}
 IMAGE="zcas-linux-builder:$ARCH"
 OUT="$ROOT/dist/linux-$ARCH"
 
@@ -44,33 +45,35 @@ docker run --rm --platform "linux/$ARCH" \
     mkdir -p /build
     tar cf - --exclude=node_modules --exclude=dist -C /src . | tar xf - -C /build
     cd /build/app/frontend && npm ci --no-audit --no-fund
-    cd .. && wails build -clean -platform linux/$ARCH -o zcas-gui -tags webkit2_41 -ldflags '-X zcas/internal/update.Version='$VERSION
+    cd .. && wails build -clean -platform linux/$ARCH -o zcas-gui -tags webkit2_41
     cd .. && CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o /src/dist/linux-$ARCH/zcas ./cmd/zcas
     cp app/build/bin/zcas-gui /src/dist/linux-$ARCH/
   "
 
 # 3. 组装安装包（CLI=zcas，GUI=zcas-gui + 桌面入口 + 图标 + 安装脚本）
 cp "$ROOT/app/build/linux/icon.png" "$OUT/icon.png"
-cat > "$OUT/zcas.desktop" <<'DESKTOP'
+APP=$(python3 "$ROOT/scripts/config.py" displayName)
+DESC=$(python3 "$ROOT/scripts/config.py" description)
+cat > "$OUT/zcas.desktop" <<DESKTOP
 [Desktop Entry]
-Name=ZCS
-Comment=ZCode 多账号切换工具
+Name=$APP
+Comment=$DESC
 Exec=zcas-gui
 Icon=zcas
 Type=Application
 Categories=Utility;Development;
 DESKTOP
-cat > "$OUT/install.sh" <<'INSTALL'
+cat > "$OUT/install.sh" <<INSTALL
 #!/bin/bash
 # zcas Linux 安装器：CLI 装到 /usr/local/bin/zcas，GUI 装桌面入口
 set -e
-PREFIX="${PREFIX:-/usr/local}"
-echo "→ 安装到 $PREFIX（需要 sudo）"
-sudo install -m755 zcas "$PREFIX/bin/zcas"
-sudo install -m755 zcas-gui "$PREFIX/bin/zcas-gui"
+PREFIX="\${PREFIX:-/usr/local}"
+echo "→ 安装到 \$PREFIX（需要 sudo）"
+sudo install -m755 zcas "\$PREFIX/bin/zcas"
+sudo install -m755 zcas-gui "\$PREFIX/bin/zcas-gui"
 sudo install -Dm644 zcas.desktop /usr/share/applications/zcas.desktop
 sudo install -Dm644 icon.png /usr/share/icons/hicolor/512x512/apps/zcas.png
-echo "✓ 完成：应用菜单搜「ZCS」，终端用 zcas 命令"
+echo "✓ 完成：应用菜单搜「$APP」，终端用 zcas 命令"
 echo "  如 GUI 无法启动，请先安装运行时: sudo apt install libwebkit2gtk-4.1-0"
 INSTALL
 chmod +x "$OUT/install.sh"

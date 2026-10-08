@@ -10,6 +10,8 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"zcas/internal/buildinfo"
 )
 
 //go:embed all:frontend/dist
@@ -32,7 +34,7 @@ func appMenu(a *App) *menu.Menu {
 		wruntime.EventsEmit(a.ctx, "menu:check-update")
 	})
 	if goruntime.GOOS != "darwin" {
-		help.AddText("About ZCS", nil, func(*menu.CallbackData) {
+		help.AddText("About "+buildinfo.Current.DisplayName, nil, func(*menu.CallbackData) {
 			wruntime.EventsEmit(a.ctx, "menu:about")
 		})
 	}
@@ -42,7 +44,7 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:     "ZCS",
+		Title:     buildinfo.Current.DisplayName,
 		Width:     980,
 		Height:    700,
 		MinWidth:  860,

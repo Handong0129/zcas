@@ -4,9 +4,10 @@
 #   ② CLI 装入 /usr/local/bin（系统默认 PATH，开箱即用）
 # 用法: scripts/build-pkg.sh [版本号]
 set -euo pipefail
-VERSION=${1:-0.3.0}
-APP="ZCS"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VERSION=${1:-$(python3 "$ROOT/scripts/config.py" version)}
+APP=$(python3 "$ROOT/scripts/config.py" displayName)
+PKG_ID=$(python3 "$ROOT/scripts/config.py" pkgIdentifier)
 STAGE="$ROOT/dist/pkg-root"
 ARCH=${ARCH:-arm64}
 
@@ -30,7 +31,7 @@ chmod +x "$SCRIPTS_DIR/preinstall"
 
 pkgbuild --root "$STAGE" \
   --scripts "$SCRIPTS_DIR" \
-  --identifier "dev.zcas.installer" \
+  --identifier "$PKG_ID" \
   --version "$VERSION" \
   --ownership recommended \
   "$PKG"

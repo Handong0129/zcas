@@ -8,16 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"zcas/internal/buildinfo"
 )
-
-// Version 当前版本。发布时由 make release 经 -ldflags "-X zcas/internal/update.Version=x.y.z" 注入；
-// 开发构建（wails dev）保持 dev，此时不做新旧比较。
-var Version = "dev"
-
-// ReleasesPage 项目发布页（「查看版本」弹窗里打开）。
-const ReleasesPage = "https://github.com/Handong0129/zcas/releases"
-
-const latestAPI = "https://api.github.com/repos/Handong0129/zcas/releases/latest"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
@@ -36,12 +29,13 @@ type ghRelease struct {
 
 // Check 查询 GitHub 最新 release 并与当前版本比较。
 func Check() (*Result, error) {
-	req, err := http.NewRequest(http.MethodGet, latestAPI, nil)
+	cfg := buildinfo.Current
+	req, err := http.NewRequest(http.MethodGet, cfg.LatestReleaseAPI(), nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "zcas/"+Version) // GitHub API 要求 UA
+	req.Header.Set("User-Agent", "zcas/"+cfg.Version) // GitHub API 要求 UA
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -60,15 +54,14 @@ func Check() (*Result, error) {
 	}
 
 	r := &Result{
-		Current: Version,
+		Current: cfg.Version,
 		Latest:  strings.TrimPrefix(rel.TagName, "v"),
 		URL:     rel.HTMLURL,
 	}
 	if r.URL == "" {
-		r.URL = ReleasesPage
+		r.URL = cfg.ReleasesURL()
 	}
-	// dev 构建版本号无意义，不提示更新
-	r.HasUpdate = Version != "dev" && compareVersions(Version, r.Latest) < 0
+	r.HasUpdate = compareVersions(cfg.Version, r.Latest) < 0
 	return r, nil
 }
 

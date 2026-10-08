@@ -42,10 +42,17 @@ make release
 不会自动跳回工具，**复制地址栏的回调链接粘贴到工具里**即可完成（界面有输入框）。
 后续可在 Windows 加注册表写入、Linux 加 x-scheme-handler 实现自动跳回。
 
-## 二、GitHub Actions（可选）
+## 二、自动发版（推荐）
 
-`.github/workflows/release.yml` 已内置：`git tag v0.3.0 && git push origin v0.3.0`
-后自动构建三平台并发布 Release。本机已能全平台出包，CI 主要用于自动化发布。
+```bash
+scripts/release.sh 0.4.0
+```
+
+一条命令完成：同步版本号到 wails.json/Makefile/打包脚本/workflow 默认值 → 提交 →
+打 `v0.4.0` tag → 推送。tag 推送后 GitHub Actions 自动构建三端产物并发布 Release
+（更新日志自动取上个 tag 以来的 commit 列表）。脚本会校验工作区干净、与 origin 已同步、
+tag 未占用。也可手动 `git tag v0.4.0 && git push origin v0.4.0` 达到同样效果
+（但版本号默认值需自己改）。
 
 ## 三、替换应用图标
 
@@ -57,6 +64,18 @@ make release
 一条命令同时更新四处：macOS `icon.icns`、Windows `icon.ico`（PNG-in-ICO，
 无第三方依赖）、Linux `icon.png`、窗口内图标 `appicon.png`。
 
-## 四、版本号
+## 四、全局配置（project.json）
 
-`make release VERSION=0.3.0`（默认取 Makefile 里的 `VERSION`）。
+`internal/buildinfo/project.json` 是全项目配置的唯一来源：名称、显示名、版本号、
+简介、仓库地址、pkg 标识符、版权、作者。**改配置只动这一个文件**。
+
+各处的读取方式：
+
+| 消费方 | 方式 |
+|---|---|
+| Go 代码（窗口标题/菜单/检查更新） | `internal/buildinfo` 包 go:embed 内嵌，编译进二进制 |
+| Makefile / 打包脚本 | `python3 scripts/config.py <key>`（如 `version`、`author.name`） |
+| `app/wails.json`、workflow 版本默认值 | 无法运行时读配置，由 `scripts/sync-config.sh` 派生（`make app`/`make release` 自动调用） |
+
+版本号升级走 `scripts/release.sh`（改 project.json → sync → 提交 → tag → 推送）；
+手工打包可 `make release VERSION=0.3.0` 覆盖（默认取 project.json）。
