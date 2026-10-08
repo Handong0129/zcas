@@ -1,7 +1,7 @@
 {
   "name": "zcas",
   "displayName": "ZCS",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "ZCode 账号无感切换工具",
   "repository": "https://github.com/Handong0129/zcas",
   "pkgIdentifier": "dev.zcas.installer",
