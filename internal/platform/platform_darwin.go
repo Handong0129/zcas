@@ -80,6 +80,17 @@ func ZCodeVersion() string {
 	return cachedZCodeVersion
 }
 
+// ReadKeychainSecret 读取 macOS 钥匙串通用密码项（genp）的明文值。
+// 委托系统 /usr/bin/security：它是 Apple 签名二进制，继承其钥匙串信任，
+// 读取 ZCode 客户端写入的项时不会额外触发授权弹窗（实测确认）。
+func ReadKeychainSecret(service, account string) (string, error) {
+	out, err := exec.Command("security", "find-generic-password", "-s", service, "-a", account, "-w").Output()
+	if err != nil {
+		return "", fmt.Errorf("读取钥匙串项失败: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 var cachedOSVersion string
 
 // OSVersion 返回 macOS 版本号（X-Os-Version 头用）。

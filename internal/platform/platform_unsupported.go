@@ -17,3 +17,6 @@ func LaunchZCode() error            { return ErrUnsupported }
 func OpenURL(string) error          { return ErrUnsupported }
 func ZCodeVersion() string          { return "" }
 func OSVersion() string             { return "" }
+func ReadKeychainSecret(service, account string) (string, error) {
+	return "", ErrUnsupported
+}
