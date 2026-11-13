@@ -25,7 +25,7 @@ env:
 jobs:
   # ---------- macOS（M 系列 arm64 优先） ----------
   macos:
-    runs-on: macos-14 # arm64 runner
+    runs-on: macos-15 # arm64 runner（macos-14 已于 2026-11-02 被 GitHub 移除）
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
