@@ -49,6 +49,10 @@ const (
 )
 
 // DefaultSecret 返回与 ZCode 客户端一致的 v1 机器绑定密钥材料。
+// 三段材料必须与 ZCode(Node)完全一致，否则解不开 enc:v1：
+//   - 平台标识用 Node 的 process.platform（Windows 是 "win32"，不是 Go 的 "windows"）；
+//   - 用户名取叶子名（Windows 上 Go 返回「机器名\用户」，Node 的 os.userInfo().username 只有「用户」）；
+//   - 家目录用 os.UserHomeDir()（与 Node os.homedir() 一致）。
 func DefaultSecret() string {
 	if v := os.Getenv("ZCODE_CREDENTIAL_SECRET"); v != "" {
 		return v
@@ -56,9 +60,21 @@ func DefaultSecret() string {
 	username := "unknown"
 	if u, err := user.Current(); err == nil && u.Username != "" {
 		username = u.Username
+		if i := strings.LastIndex(username, `\`); i >= 0 { // Windows: 去掉「机器名\」或「域\」前缀
+			username = username[i+1:]
+		}
 	}
 	home, _ := os.UserHomeDir()
-	return fmt.Sprintf("zcode-credential-fallback:%s:%s:%s", runtime.GOOS, home, username)
+	return fmt.Sprintf("zcode-credential-fallback:%s:%s:%s", nodePlatform(), home, username)
+}
+
+// nodePlatform 返回与 ZCode(Node)process.platform 一致的平台标识。
+// 仅 Windows 不同：Go runtime.GOOS="windows"，Node process.platform="win32"；darwin/linux 两者一致。
+func nodePlatform() string {
+	if runtime.GOOS == "windows" {
+		return "win32"
+	}
+	return runtime.GOOS
 }
 
 func deriveKey(secret string) []byte {

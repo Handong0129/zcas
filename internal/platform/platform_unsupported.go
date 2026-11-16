@@ -1,6 +1,6 @@
-//go:build !darwin
+//go:build !darwin && !windows
 
-// Package platform 非 macOS 平台的占位实现。当前仅支持 macOS；
+// Package platform 未实现平台（macOS / Windows 之外，如 Linux）的占位实现。
 // 扩展新平台时新建 platform_<goos>.go 实现同名函数即可，上层零改动。
 package platform
 

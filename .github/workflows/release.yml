@@ -16,7 +16,7 @@ on:
     inputs:
       version:
         description: '版本号（如 0.2.0）'
-        default: '0.2.0'
+        default: '0.3.0'
 
 env:
   GO_VERSION: '1.24'
@@ -51,9 +51,12 @@ jobs:
           name: zcas-${{ env.VERSION }}-macos-arm64-dmg
           path: dist/*.dmg
 
-  # ---------- Windows（NSIS 安装器，自动安装） ----------
+  # ---------- Windows（NSIS 安装器；amd64=Intel/AMD 主流，arm64=ARM 原生） ----------
   windows:
     runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -68,19 +71,35 @@ jobs:
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
         if: startsWith(github.ref, 'refs/tags/')
       - name: 版本号（手动触发）
+        shell: bash
         run: echo "VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      # GUI 用 -o zcas-gui，与下面 CLI 的 zcas.exe 区分开，避免同名互相覆盖
       - name: 构建 GUI（-nsis 自动生成安装器）
         working-directory: app
-        run: wails build -clean -platform windows/amd64 -nsis
+        shell: bash
+        run: wails build -clean -platform windows/${{ matrix.arch }} -o zcas-gui -nsis
       - name: 构建 CLI
+        shell: bash
+        env:
+          GOOS: windows
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
         run: go build -trimpath -ldflags "-s -w" -o app/build/bin/zcas.exe ./cmd/zcas
+      # 安装器名用 glob 取（Wails 产出 zcas-<arch>-installer.exe），避免写死架构 token
+      - name: 归集带版本号的产物
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $installer = Get-ChildItem "app/build/bin/*-installer.exe" | Select-Object -First 1
+          Copy-Item $installer.FullName "dist/zcas-$env:VERSION-windows-${{ matrix.arch }}-installer.exe"
+          Compress-Archive -Path "app/build/bin/zcas.exe" -DestinationPath "dist/zcas-$env:VERSION-windows-${{ matrix.arch }}-cli.zip" -Force
       - uses: actions/upload-artifact@v4
         with:
-          name: zcas-windows-amd64
+          name: zcas-${{ env.VERSION }}-windows-${{ matrix.arch }}
           path: |
-            app/build/bin/*.exe
-            app/build/bin/*-installer.exe
+            dist/zcas-${{ env.VERSION }}-windows-${{ matrix.arch }}-installer.exe
+            dist/zcas-${{ env.VERSION }}-windows-${{ matrix.arch }}-cli.zip
 
   # ---------- Linux（tar.gz + install.sh） ----------
   linux:
