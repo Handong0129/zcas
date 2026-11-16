@@ -135,7 +135,6 @@ export namespace main {
 	}
 	export class OAuthResult {
 	    created: boolean;
-	    billingReady: boolean;
 	    meta?: store.Meta;
 	
 	    static createFrom(source: any = {}) {
@@ -145,7 +144,6 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.created = source["created"];
-	        this.billingReady = source["billingReady"];
 	        this.meta = this.convertValues(source["meta"], store.Meta);
 	    }
 	
@@ -201,11 +199,29 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class ZCodeView {
+	    installed: boolean;
+	    version?: string;
+	    supportsZaiCN: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ZCodeView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.installed = source["installed"];
+	        this.version = source["version"];
+	        this.supportsZaiCN = source["supportsZaiCN"];
+	    }
+	}
 	export class StateView {
 	    running: boolean;
 	    current?: CurrentView;
 	    accounts: store.Meta[];
 	    hasLastBackup: boolean;
+	    zcode?: ZCodeView;
+	    loginProviders?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new StateView(source);
@@ -217,6 +233,8 @@ export namespace main {
 	        this.current = this.convertValues(source["current"], CurrentView);
 	        this.accounts = this.convertValues(source["accounts"], store.Meta);
 	        this.hasLastBackup = source["hasLastBackup"];
+	        this.zcode = this.convertValues(source["zcode"], ZCodeView);
+	        this.loginProviders = source["loginProviders"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

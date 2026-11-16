@@ -34,6 +34,10 @@ export function GetAppInfo() {
   return window['go']['main']['App']['GetAppInfo']();
 }
 
+export function GetCloseAction() {
+  return window['go']['main']['App']['GetCloseAction']();
+}
+
 export function GetHealth() {
   return window['go']['main']['App']['GetHealth']();
 }
@@ -58,8 +62,20 @@ export function RenameAccount(arg1, arg2) {
   return window['go']['main']['App']['RenameAccount'](arg1, arg2);
 }
 
+export function ResolveClose(arg1, arg2) {
+  return window['go']['main']['App']['ResolveClose'](arg1, arg2);
+}
+
 export function Rollback() {
   return window['go']['main']['App']['Rollback']();
+}
+
+export function SetCloseAction(arg1) {
+  return window['go']['main']['App']['SetCloseAction'](arg1);
+}
+
+export function SetRunningWatch(arg1) {
+  return window['go']['main']['App']['SetRunningWatch'](arg1);
 }
 
 export function StartOAuth(arg1, arg2, arg3) {

@@ -175,7 +175,7 @@ func HasAnyPlan(zcodeJWT string, cfg *config.Config) bool {
 // RawJSON 用候选 token 依次请求 billing 接口，返回首个成功响应的原始 JSON（排查用）。
 func RawJSON(tokens []string, cfg *config.Config) ([]byte, error) {
 	if len(tokens) == 0 {
-		return nil, errors.New("未找到可用于查询额度的 token")
+		return nil, errors.New("该账号快照的凭据在本机无法解密")
 	}
 	var lastErr error
 	for _, token := range tokens {
@@ -192,7 +192,7 @@ func RawJSON(tokens []string, cfg *config.Config) ([]byte, error) {
 // （服务端首次激活有缓存延迟，避免误报过期）。
 func ForTokens(tokens []string, cfg *config.Config) (*Overview, error) {
 	if len(tokens) == 0 {
-		return nil, errors.New("未找到可用于查询额度的 token")
+		return nil, errors.New("该账号快照的凭据在本机无法解密（可能是从其他电脑复制的账号，或系统凭据库密钥不可用）；请在本机重新保存该账号")
 	}
 	var lastErr error
 	authFails := 0
@@ -344,6 +344,12 @@ func normalize(data any) *Overview {
 		remaining = &r
 	}
 
+	if total == nil {
+		// 新版 plans[].entitlements[].grant_units 兜底（仅有总量，无已用/剩余）
+		if t := entitlementsTotal(unwrapped); t > 0 {
+			total = &t
+		}
+	}
 	ov := &Overview{Total: total, Used: used, Remaining: remaining, PlanTier: extractPlanTier(unwrapped)}
 	if total != nil && *total > 0 && used != nil {
 		p := clamp(*used / *total * 100, 0, 100)
@@ -354,6 +360,24 @@ func normalize(data any) *Overview {
 	ov.IsEmpty = plansOk && balOk && len(plans) == 0 && len(balances) == 0
 	ov.Items = normalizeItems(unwrapped)
 	return ov
+}
+
+// entitlementsTotal 新版响应里 plans[].entitlements[].grant_units 的总量。
+func entitlementsTotal(data map[string]any) float64 {
+	plans, _ := data["plans"].([]any)
+	var sum float64
+	for _, p := range plans {
+		pm, _ := p.(map[string]any)
+		ents, _ := pm["entitlements"].([]any)
+		for _, e := range ents {
+			if m, _ := e.(map[string]any); m != nil {
+				if n, ok := toNumber(m["grant_units"]); ok {
+					sum += n
+				}
+			}
+		}
+	}
+	return sum
 }
 
 func unwrap(data any) map[string]any {
@@ -490,8 +514,35 @@ func extractPlanTier(current map[string]any) *PlanTier {
 }
 
 func normalizeItems(data map[string]any) []Item {
+	items := make([]Item, 0)
+	// 新版结构（ZCode 3.18.x 实测）：plans[].entitlements[] 是权益明细，
+	// Start Plan 等一次性权益只有 grant_units（没有 used/remaining 字段）
+	if plans, ok := data["plans"].([]any); ok {
+		for _, p := range plans {
+			pm, _ := p.(map[string]any)
+			ents, _ := pm["entitlements"].([]any)
+			for _, e := range ents {
+				m, _ := e.(map[string]any)
+				if m == nil {
+					continue
+				}
+				total, hasT := toNumber(m["grant_units"])
+				if !hasT {
+					continue
+				}
+				item := Item{
+					Name:  firstNonEmpty(strv(m["show_name"]), strv(m["name"]), "权益"),
+					Unit:  firstNonEmpty(strv(m["unit_type"]), strv(m["meter"]), "token"),
+					Total: &total,
+				}
+				if pe := strv(m["effective_at"]); pe != "" && pe != "0" {
+					item.PeriodEnd = pe
+				}
+				items = append(items, item)
+			}
+		}
+	}
 	balances, _ := data["balances"].([]any)
-	items := make([]Item, 0, len(balances))
 	for _, b := range balances {
 		m, _ := b.(map[string]any)
 		if m == nil {
@@ -596,6 +647,97 @@ func codingPlanHost(provider string) string {
 	return "https://bigmodel.cn"
 }
 
+// PercentOf 限额使用百分比（半值进位取整）。全工具唯一的百分比计算规则——
+// 曾经主窗口用服务端 percentage 字段（截断）、托盘本地四舍五入，57.6% 会显示成
+// 57% / 58% 两套数字（实测踩坑），统一从这里取值。
+func PercentOf(used, limit float64) int {
+	if limit <= 0 {
+		return 0
+	}
+	// 先乘后除再 Round：used/limit*100 的中间浮点误差会让 57.5 落到 57.999… 被截成 57
+	p := int(math.Round(used * 100 / limit))
+	if p > 100 {
+		p = 100 // 窗口重置边界在途请求等会造成已用略超限额（实测 101%）；
+		// 进度百分比钳到 100，超额与否由已用/限额的绝对值体现
+	}
+	return p
+}
+
+// ===== 新版用量聚合端点（zcode.z.ai mcp/usage）=====
+//
+// ZCode 3.18.2 起 zchat(zai_cn) 登录态的官方用量来源。鉴权为双 token 头
+// （逆向自 app.asar 的 buildOfficialMcpAuthHeaders / createCodingPlanResetHeaders）：
+//
+//	Authorization: Bearer <zcodejwttoken>
+//	X-Bigmodel-Authorization: Bearer <oauth access_token>
+//
+// 旧 monitor/usage/quota/limit 端点不接受 zai_cn 凭据（bigmodel.cn 401 / chat.z.ai 404，
+// api.z.ai 也 401，均实测确认）；bigmodel 渠道的旧 token 仍走旧端点。
+
+// MCPUsageURL 用量聚合端点：返回档位 level 与窗口用量 total_usage。
+const MCPUsageURL = "https://zcode.z.ai/api/v1/mcp/usage"
+
+// FetchMCPUsage 新版用量查询，映射到 CodingPlanUsage（档位 + 单窗口用量）。
+// provider 仅作展示标记（写入 CodingPlanUsage.Provider）。
+func FetchMCPUsage(jwt, oauthToken, provider string) (*CodingPlanUsage, error) {
+	if jwt == "" || oauthToken == "" {
+		return nil, errors.New("缺少 mcp/usage 双 token")
+	}
+	req, err := http.NewRequest(http.MethodGet, MCPUsageURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	req.Header.Set("X-Bigmodel-Authorization", "Bearer "+oauthToken)
+	req.Header.Set("Bigmodel-Target-Type", "PERSONAL")
+	req.Header.Set("Accept", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("mcp/usage 接口 HTTP %d", resp.StatusCode)
+	}
+	var env struct {
+		Code int `json:"code"`
+		Data struct {
+			ServerTime    int64  `json:"server_time"`
+			NextRefreshAt int64  `json:"next_refresh_at"`
+			Level         string `json:"level"`
+			TotalUsage    *struct {
+				Used      float64 `json:"used"`
+				Limit     float64 `json:"limit"`
+				Remaining float64 `json:"remaining"`
+			} `json:"total_usage"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil || env.Code != 0 {
+		return nil, fmt.Errorf("mcp/usage 接口返回异常: %s", truncate(string(body), 120))
+	}
+	if env.Data.TotalUsage == nil && env.Data.Level == "" {
+		return nil, errors.New("该账号无 mcp/usage 用量数据")
+	}
+	u := &CodingPlanUsage{Provider: provider, Level: env.Data.Level}
+	if t := env.Data.TotalUsage; t != nil {
+		// 该端点返回的是「每日聚合窗口」：重置于北京时间次日 0 点（多账号实测
+		// next_refresh_at 均为次日零点），与 5 小时/周窗口是不同维度的计量。
+		l := CodingPlanLimit{
+			Name:      "每日窗口（zchat 聚合）",
+			Limit:     t.Limit,
+			Used:      t.Used,
+			Remaining: t.Remaining,
+			NextReset: env.Data.NextRefreshAt * 1000, // 接口秒级，前端按毫秒展示
+		}
+		if t.Limit > 0 {
+			l.Percent = PercentOf(t.Used, t.Limit)
+		}
+		u.Limits = append(u.Limits, l)
+	}
+	return u, nil
+}
+
 // FetchCodingPlanUsage 查询 coding-plan 用量。
 // 鉴权与官方客户端一致：Authorization 头直接放裸 token（createBigModelLoginAuthHeaders）。
 // account-provider api-key 与 oauth access_token 均可（实测确认）。
@@ -646,7 +788,7 @@ func FetchCodingPlanUsage(provider, token string) (*CodingPlanUsage, error) {
 			Limit:     l.Usage,
 			Used:      l.CurrentValue,
 			Remaining: l.Remaining,
-			Percent:   l.Percentage,
+			Percent:   PercentOf(l.CurrentValue, l.Usage), // 服务端 percentage 是截断，弃用
 			NextReset: l.NextReset,
 		})
 	}
@@ -763,7 +905,22 @@ func EnrichCodingPlan(ov *Overview, cred map[string]any, secret string) {
 			return
 		}
 	}
-	// 2) oauth access_token 兜底（实测 bigmodel token 可直接查用量）
+	// 2) zai_cn 的 BigModel 关联凭据（oauth:linked_bigmodel）：
+	// zchat 登录态的 coding-plan 计费仍在 BigModel 侧，linked token 与旧渠道 oauth token
+	// 同构（实测可直接查双窗口用量端点，5 小时 + 周窗口齐全）。
+	if lb := decrypt("oauth:linked_bigmodel"); lb != "" {
+		var linked struct {
+			AccessToken string `json:"accessToken"`
+		}
+		if json.Unmarshal([]byte(lb), &linked) == nil && linked.AccessToken != "" {
+			if u, err := FetchCodingPlanUsage("bigmodel", linked.AccessToken); err == nil {
+				ov.CodingPlan = u
+				enrichSubscription(u, linked.AccessToken)
+				return
+			}
+		}
+	}
+	// 3) oauth access_token 兜底（实测 bigmodel token 可直接查用量）
 	for _, p := range []string{"bigmodel", "zai"} {
 		token := decrypt("oauth:" + p + ":access_token")
 		if token == "" {
@@ -777,6 +934,43 @@ func EnrichCodingPlan(ov *Overview, cred map[string]any, secret string) {
 			return
 		}
 	}
+	// 4) 最后兜底：mcp/usage 聚合端点（zcodejwttoken + oauth token 双头）。
+	// 注意它返回的是「每日聚合窗口」——重置于北京时间次日 0 点，与 5 小时/周窗口
+	// 是不同维度的计量（MissCat 5h 用量 93% 时它仍是 0/1000，实测确认），
+	// 只在双窗口端点都不可用时保底显示。
+	if jwt := decrypt("zcodejwttoken"); jwt != "" {
+		for _, p := range oauthProviderOrder(decrypt("oauth:active_provider")) {
+			token := decrypt("oauth:" + p + ":access_token")
+			if token == "" {
+				continue
+			}
+			if u, err := FetchMCPUsage(jwt, token, p); err == nil {
+				ov.CodingPlan = u
+				return
+			}
+		}
+	}
+}
+
+// oauthProviderOrder oauth token 尝试顺序：当前渠道优先，再按新旧渠道固定序去重。
+func oauthProviderOrder(active string) []string {
+	var out []string
+	for _, p := range []string{active, "zai_cn", "zai", "bigmodel"} {
+		if p == "" {
+			continue
+		}
+		dup := false
+		for _, seen := range out {
+			if seen == p {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // embeddedAccountID 提取 coding-plan api-key 里内嵌的账号 id
@@ -907,11 +1101,9 @@ func EnrichResetCards(ov *Overview, cred map[string]any, secret string) {
 	if jwt == "" {
 		return
 	}
-	// 两个 token 都是本账号快照字段，zai/bigmodel 任一有效即可；当前渠道优先。
-	providers := []string{"bigmodel", "zai"}
-	if decrypt("oauth:active_provider") == "zai" {
-		providers = []string{"zai", "bigmodel"}
-	}
+	// 两个 token 都是本账号快照字段，各渠道任一有效即可；当前渠道优先。
+	// zai_cn（zchat 登录）与其他渠道同一双头鉴权，一并尝试。
+	providers := oauthProviderOrder(decrypt("oauth:active_provider"))
 	for _, p := range providers {
 		token := decrypt("oauth:" + p + ":access_token")
 		if token == "" {

@@ -26,8 +26,9 @@ const usage = `zcas — ZCode 账号无感切换工具（macOS）
   zcas ls                  列出所有已保存账号
   zcas capture [--name 名称] [--note 备注] [--overwrite]
                            把当前 ZCode 登录态存为账号快照
-  zcas add [--name 名称] [--provider zai|bigmodel]
-                           浏览器 OAuth 添加新账号（zai=全球，bigmodel=中国；不影响当前登录）
+  zcas add [--name 名称] [--provider zai|zai_cn|bigmodel]
+                           浏览器 OAuth 添加新账号（zai=全球，zai_cn=中国新版，
+                           bigmodel=旧中国渠道，仅存量账号重授权用；不影响当前登录）
   zcas use <序号|id|前缀> [--no-restart]
                            切换账号（自动关闭并重启 ZCode）
   zcas rm <序号|id>        删除账号快照
@@ -89,7 +90,7 @@ func cmdStatus() {
 		fmt.Println("当前登录: （无法识别账号指纹）")
 	} else {
 		saved := ""
-		if store.Exists(fp.EmailShortID) {
+		if store.ResolveSavedID(fp) != "" {
 			saved = "  [已保存]"
 		}
 		running := ""
@@ -148,7 +149,7 @@ func cmdAdd(args []string) error {
 	fs := flag.NewFlagSet("add", flag.ContinueOnError)
 	name := fs.String("name", "", "账号名称（默认用邮箱/手机号）")
 	note := fs.String("note", "", "备注")
-	provider := fs.String("provider", "zai", "登录渠道: zai(全球) 或 bigmodel(中国)")
+	provider := fs.String("provider", "zai", "登录渠道: zai(全球) / zai_cn(中国) / bigmodel(旧中国渠道)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -156,10 +157,85 @@ func cmdAdd(args []string) error {
 	if err != nil {
 		return err
 	}
+	// 渠道与本机 ZCode 版本兼容提醒：zai_cn 账号在旧版客户端（<3.18.2）上无法使用
+	if p.ID == "zai_cn" {
+		if ver := platform.ZCodeVersion(); ver != "" && !platform.ZCodeSupportsZaiCN() {
+			fmt.Printf("⚠ 当前 ZCode %s 低于 3.18.2：zchat 登录的账号在旧版客户端上切换会掉登录页，建议改用 --provider bigmodel 或升级 ZCode\n", ver)
+		}
+	}
 
-	state, err := auth.NewState()
+	var ts *auth.TokenSet
+	if p.Polling {
+		ts, err = pollLogin(p)
+	} else {
+		ts, err = callbackLogin(p)
+	}
 	if err != nil {
 		return err
+	}
+
+	fmt.Println("正在保存账号…")
+	meta, created, err := auth.AddAccount(p, ts, *name, *note, config.Load())
+	if err != nil {
+		return err
+	}
+	if !created {
+		fmt.Printf("○ 该账号已存在（%s）\n", meta.Label)
+		return nil
+	}
+	fmt.Printf("✓ 已添加账号 %s（%s）\n", meta.Label, meta.ID)
+	fmt.Println("（服务端额度初始化在后台进行，立即查 zcas quota 若无数据稍后重试即可）")
+	return nil
+}
+
+// pollLogin zai_cn 轮询式登录：服务端发起 flow，浏览器完成授权后轮询取 token。
+func pollLogin(p auth.Provider) (*auth.TokenSet, error) {
+	flow, err := auth.StartCliFlow(p)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("正在打开系统浏览器，请登录 %s 账号（zchat.z.ai）…\n", p.DisplayName)
+	if err := platform.OpenURL(flow.AuthorizeURL); err != nil {
+		fmt.Println("打开浏览器失败，请手动访问：")
+		fmt.Println(flow.AuthorizeURL)
+	}
+	deadline := time.Now().Add(5 * time.Minute)
+	fmt.Printf("等待浏览器完成授权（自动检测，最长约 %.0f 分钟，Ctrl+C 取消）…\n",
+		time.Until(deadline).Minutes())
+	spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	i := 0
+	for {
+		status, ts, err := flow.Poll()
+		switch status {
+		case auth.FlowReady:
+			if ts != nil {
+				fmt.Println("\n✓ 授权完成")
+				return ts, nil
+			}
+			return nil, err
+		case auth.FlowFailed:
+			fmt.Println()
+			return nil, err
+		}
+		// FlowPending：网络抖动或未完成授权，继续轮询
+		if err != nil {
+			fmt.Printf("\n  （%s，继续等待…）", err)
+		}
+		fmt.Printf("\r%s 等待授权中…（剩余 %d 秒）", spinner[i%len(spinner)], int(time.Until(deadline).Seconds()))
+		i++
+		time.Sleep(flow.Interval)
+		if time.Now().After(deadline) {
+			fmt.Println()
+			return nil, fmt.Errorf("等待授权超时，请重试")
+		}
+	}
+}
+
+// callbackLogin zai/bigmodel 浏览器回调式登录：粘贴 zcode:// 回调链接换 token。
+func callbackLogin(p auth.Provider) (*auth.TokenSet, error) {
+	state, err := auth.NewState()
+	if err != nil {
+		return nil, err
 	}
 	authURL := auth.BuildAuthorizeURL(p, state)
 	fmt.Printf("正在打开系统浏览器，请登录 %s 账号…\n", p.DisplayName)
@@ -175,35 +251,18 @@ func cmdAdd(args []string) error {
 
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil {
-		return fmt.Errorf("读取输入失败: %w", err)
+		return nil, fmt.Errorf("读取输入失败: %w", err)
 	}
 	code, cbState, err := auth.ParseCallbackInput(line)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if cbState != "" && cbState != state {
-		return fmt.Errorf("回调 state 不匹配（可能粘贴了旧的链接），请重试")
+		return nil, fmt.Errorf("回调 state 不匹配（可能粘贴了旧的链接），请重试")
 	}
 
 	fmt.Println("正在换取 token…")
-	ts, err := auth.ExchangeCode(p, code, state)
-	if err != nil {
-		return err
-	}
-	fmt.Println("正在保存账号并初始化额度（约 20s）…")
-	meta, created, billingReady, err := auth.AddAccount(p, ts, *name, *note, config.Load())
-	if err != nil {
-		return err
-	}
-	if !created {
-		fmt.Printf("○ 该账号已存在（%s）\n", meta.Label)
-		return nil
-	}
-	fmt.Printf("✓ 已添加账号 %s（%s）\n", meta.Label, meta.ID)
-	if !billingReady {
-		fmt.Println("⚠ 额度初始化尚未就绪（服务端异步处理），稍后 zcas quota 查询会自动重试")
-	}
-	return nil
+	return auth.ExchangeCode(p, code, state)
 }
 
 // ===== use =====
@@ -220,6 +279,14 @@ func cmdUse(args []string) error {
 	id, err := store.Resolve(fs.Arg(0))
 	if err != nil {
 		return err
+	}
+	// zai_cn 账号切到旧版 ZCode（<3.18.2）会掉登录页：非阻断提醒
+	if _, snap, err := store.Load(id); err == nil {
+		if store.LoginProvider(snap, zcrypto.DefaultSecret()) == "zai_cn" && !platform.ZCodeSupportsZaiCN() {
+			if ver := platform.ZCodeVersion(); ver != "" {
+				fmt.Printf("⚠ 该账号是 zchat 登录，当前 ZCode %s 低于 3.18.2，切换后 ZCode 会掉到登录页（zcas rollback 可回滚）\n", ver)
+			}
+		}
 	}
 	res, err := switcher.Use(id, !*noRestart)
 	if err != nil {

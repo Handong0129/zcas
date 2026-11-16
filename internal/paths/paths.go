@@ -39,3 +39,6 @@ func ConfigPath() string { return filepath.Join(DataDir(), "config.json") }
 
 // HealthFile 账号会话健康状态缓存文件。
 func HealthFile() string { return filepath.Join(DataDir(), "health.json") }
+
+// OAuthLogFile OAuth 登录流程诊断日志（init/poll 状态迁移，排查授权失败用）。
+func OAuthLogFile() string { return filepath.Join(DataDir(), "oauth-debug.log") }

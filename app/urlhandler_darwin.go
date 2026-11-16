@@ -35,3 +35,10 @@ func selfBundlePath() string {
 	}
 	return ""
 }
+
+// restoreURLSchemeToZCode 把 zcode:// 归还给官方 ZCode 客户端（装了才还）。
+func restoreURLSchemeToZCode() {
+	if _, err := os.Stat(zcodeAppBundle); err == nil {
+		setDefaultURLHandler("zcode", zcodeAppBundle)
+	}
+}

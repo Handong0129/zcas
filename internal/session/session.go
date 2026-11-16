@@ -47,6 +47,10 @@ var httpClient = &http.Client{Timeout: 12 * time.Second}
 // usagePath 用量探测端点（bigmodel.cn 与 chat.z.ai 同路径，复刻官方客户端）。
 const usagePath = "/api/monitor/usage/quota/limit"
 
+// mcpUsageURL zai_cn（zchat 登录）的用量探测端点：旧 monitor 端点不接受 zai_cn
+// 凭据（实测 401/404），官方 3.18.2 起统一走 mcp/usage 双 token 头。
+const mcpUsageURL = "https://zcode.z.ai/api/v1/mcp/usage"
+
 func host(provider string) string {
 	if provider == "zai" {
 		return "https://chat.z.ai"
@@ -67,6 +71,14 @@ func CheckSnapshot(id string, snap *store.Snapshot, secret string) Report {
 	tok := plain(snap.CredentialFields["oauth:"+provider+":access_token"], secret)
 	if tok == "" {
 		return rep
+	}
+	if provider == "zai_cn" {
+		// zai_cn：双 token 头探测 mcp/usage（zcodejwttoken + zchat oauth token）
+		jwt := plain(snap.CredentialFields["zcodejwttoken"], secret)
+		if jwt == "" {
+			return rep
+		}
+		return checkMCPUsage(rep, jwt, tok)
 	}
 	req, err := http.NewRequest(http.MethodGet, host(provider)+usagePath, nil)
 	if err != nil {
@@ -118,6 +130,45 @@ func plain(v, secret string) string {
 		return ""
 	}
 	return out
+}
+
+// checkMCPUsage zai_cn 会话探测：GET mcp/usage 双 token 头。
+// 200 且 code=0 → alive；401/403 → expired（会话失效）；其余 → unknown 不判定。
+func checkMCPUsage(rep Report, jwt, oauthToken string) Report {
+	req, err := http.NewRequest(http.MethodGet, mcpUsageURL, nil)
+	if err != nil {
+		return rep
+	}
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	req.Header.Set("X-Bigmodel-Authorization", "Bearer "+oauthToken)
+	req.Header.Set("Bigmodel-Target-Type", "PERSONAL")
+	req.Header.Set("Accept", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return rep
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		rep.Status = StatusExpired
+		return rep
+	}
+	if resp.StatusCode != http.StatusOK {
+		return rep
+	}
+	var env struct {
+		Code int `json:"code"`
+	}
+	if json.Unmarshal(body, &env) != nil {
+		return rep
+	}
+	switch {
+	case env.Code == 0:
+		rep.Status = StatusAlive
+	case env.Code == 401 || env.Code == 403:
+		rep.Status = StatusExpired
+	}
+	return rep
 }
 
 // ===== 健康状态持久化（~/.zcas/health.json）=====

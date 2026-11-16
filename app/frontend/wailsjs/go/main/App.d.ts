@@ -21,6 +21,8 @@ export function FinishReOAuth(arg1:string):Promise<main.ReAuthOutcome>;
 
 export function GetAppInfo():Promise<buildinfo.Info>;
 
+export function GetCloseAction():Promise<string>;
+
 export function GetHealth():Promise<Array<main.HealthView>>;
 
 export function GetQuota(arg1:string):Promise<quota.Overview>;
@@ -33,7 +35,13 @@ export function LaunchZCode():Promise<void>;
 
 export function RenameAccount(arg1:string,arg2:string):Promise<void>;
 
+export function ResolveClose(arg1:string,arg2:boolean):Promise<void>;
+
 export function Rollback():Promise<void>;
+
+export function SetCloseAction(arg1:string):Promise<void>;
+
+export function SetRunningWatch(arg1:boolean):Promise<void>;
 
 export function StartOAuth(arg1:string,arg2:string,arg3:string):Promise<void>;
 

@@ -105,6 +105,11 @@ func ReadLive() (cred, cfg map[string]any, err error) {
 	}
 	cfg, err = fsutil.ReadJSONFile(paths.ConfigFile())
 	if err != nil {
+		// Windows 版 ZCode 不一定生成 config.json（无自定义 provider 时），
+		// 缺失按空配置处理，不能因此挡住抓取/切换
+		if errors.Is(err, os.ErrNotExist) {
+			return cred, map[string]any{}, nil
+		}
 		return nil, nil, fmt.Errorf("读取 config.json 失败: %w", err)
 	}
 	return cred, cfg, nil
@@ -141,7 +146,11 @@ func IsAccountSlot(id string, slot map[string]any) bool {
 }
 
 // Slice 从完整登录态中切出账号切片。
-func Slice(cred, cfg map[string]any) *Snapshot {
+// Slice 把当前登录态切成快照。凭据字段解密后重加密为 enc:v1（机器绑定密钥）再入库，
+// 不再原样拷贝密文：原样拷贝的 enc:v2:os 密文依赖 OS 凭据库密钥，快照在密钥不可用的
+// 场景（跨电脑复制、系统凭据库异常）会整体不可用，表现为"未找到可用于查询额度的 token"。
+// 解密失败的字段原样保留（best effort，切换兼容性优先于可读性）。
+func Slice(cred, cfg map[string]any, secret string) *Snapshot {
 	snap := &Snapshot{
 		Version:          SnapshotVersion,
 		CredentialFields: map[string]string{},
@@ -152,7 +161,7 @@ func Slice(cred, cfg map[string]any) *Snapshot {
 			continue
 		}
 		if s, ok := v.(string); ok {
-			snap.CredentialFields[k] = s
+			snap.CredentialFields[k] = reencryptV1(s, secret)
 		}
 	}
 	if providers, ok := cfg["provider"].(map[string]any); ok {
@@ -167,6 +176,18 @@ func Slice(cred, cfg map[string]any) *Snapshot {
 		}
 	}
 	return snap
+}
+
+// reencryptV1 解密任意格式的凭据字段并重加密为 enc:v1；解密失败原样返回。
+func reencryptV1(value, secret string) string {
+	plain, err := zcrypto.Decrypt(value, secret)
+	if err != nil || plain == "" {
+		return value
+	}
+	if out, err := zcrypto.Encrypt(plain, secret); err == nil {
+		return out
+	}
+	return value
 }
 
 // Apply 把账号切片合并进当前登录态：先清除当前文件里的账号字段/槽位，
@@ -309,6 +330,48 @@ func Save(meta *Meta, snap *Snapshot) error {
 	return fsutil.WriteJSONAtomic(mp, meta)
 }
 
+// ResolveSavedID 把当前登录指纹解析到已保存账号：先按去重 ID 精确匹配，
+// 匹配不上再按 UserID 归并（新版 ZCode 的 user_info 字段变了会让同一账号的
+// 去重 ID 换算法输入，比如 uid8 → 手机号 hash；UserID 不变，是可靠归并键）。
+// 返回账号 id；都不匹配返回空串。
+func ResolveSavedID(fp *fingerprint.Fingerprint) string {
+	if fp == nil {
+		return ""
+	}
+	if Exists(fp.EmailShortID) {
+		return fp.EmailShortID
+	}
+	if fp.UserID == "" {
+		return ""
+	}
+	metas, _ := List()
+	for _, m := range metas {
+		if m.UserID == fp.UserID {
+			return m.ID
+		}
+	}
+	return ""
+}
+
+// LoginProvider 提取快照的登录渠道（oauth:active_provider 解密值；缺失返回空串）。
+// 供界面判断账号与新旧 ZCode 客户端的兼容性（zai_cn 渠道需 ZCode ≥ 3.18.2）。
+func LoginProvider(snap *Snapshot, secret string) string {
+	if snap == nil {
+		return ""
+	}
+	raw := snap.CredentialFields["oauth:active_provider"]
+	if raw == "" {
+		return ""
+	}
+	if !zcrypto.IsEncrypted(raw) {
+		return raw
+	}
+	if plain, err := zcrypto.Decrypt(raw, secret); err == nil {
+		return plain
+	}
+	return ""
+}
+
 // Exists 账号是否已存在。
 func Exists(id string) bool {
 	mp, err := metaPath(id)
@@ -327,7 +390,10 @@ func Capture(label, note string, overwrite bool) (*Meta, bool, error) {
 	if fp == nil {
 		return nil, false, errors.New("无法从当前登录态提取账号指纹（请先在 ZCode 里登录）")
 	}
-	id := fp.EmailShortID
+	id := ResolveSavedID(fp)
+	if id == "" {
+		id = fp.EmailShortID
+	}
 	if Exists(id) && !overwrite {
 		mp, _ := metaPath(id)
 		b, _ := os.ReadFile(mp)
@@ -335,8 +401,9 @@ func Capture(label, note string, overwrite bool) (*Meta, bool, error) {
 		_ = json.Unmarshal(b, &old)
 		return &old, false, nil
 	}
-	snap := Slice(cred, cfg)
+	snap := Slice(cred, cfg, secret)
 	meta := metaFromFingerprint(fp, label, note)
+	meta.ID = id // 归并场景保持旧账号 id 不变（文件名与既有引用都稳定）
 	meta.CapturedAt = time.Now().UnixMilli()
 	if err := Save(meta, snap); err != nil {
 		return nil, false, err
@@ -382,7 +449,10 @@ func WriteBackCurrent() (string, error) {
 	if fp == nil || fp.UserID == "" {
 		return "", nil
 	}
-	id := fp.EmailShortID
+	id := ResolveSavedID(fp)
+	if id == "" {
+		return "", nil // 当前账号不在库中
+	}
 	meta, oldSnap, err := Load(id)
 	if err != nil {
 		return "", nil // 当前账号不在库中
@@ -390,7 +460,7 @@ func WriteBackCurrent() (string, error) {
 	if meta.UserID != "" && fp.UserID != meta.UserID {
 		return "", fmt.Errorf("当前登录态 user_id 与账号 %s 不一致，跳过回写（防止串号污染）", id)
 	}
-	snap := Slice(cred, cfg)
+	snap := Slice(cred, cfg, secret)
 	tok, ok := snap.CredentialFields["zcodejwttoken"]
 	if !ok || tok == "" {
 		return "", fmt.Errorf("当前登录态缺少 zcodejwttoken，跳过回写")

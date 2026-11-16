@@ -1,612 +1,779 @@
 :root {
-    color-scheme: dark;
+  color-scheme: dark;
 }
 
 * {
-    box-sizing: border-box;
+  box-sizing: border-box;
 }
 
 body {
-    margin: 0;
-    font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
-    background: #0d1117;
-    color: #e6edf3;
-    font-size: 14px;
+  margin: 0;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  background: #0d1117;
+  color: #e6edf3;
+  font-size: 14px;
 }
 
 .container {
-    max-width: 920px;
-    margin: 0 auto;
-    padding: 20px 24px 48px;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 20px 24px 48px;
 }
 
 /* ===== 顶栏 ===== */
 .topbar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
 }
 
 .topbar h1 {
-    font-size: 18px;
-    font-weight: 600;
-    margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
 }
 
 .spacer {
-    flex: 1;
+  flex: 1;
 }
 
 .status {
-    font-size: 12px;
-    padding: 3px 10px;
-    border-radius: 999px;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
 }
 
 .status.on {
-    color: #3fb950;
-    background: rgba(63, 185, 80, 0.12);
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.12);
 }
 
 .status.off {
-    color: #8b949e;
-    background: rgba(139, 148, 158, 0.12);
+  color: #8b949e;
+  background: rgba(139, 148, 158, 0.12);
 }
 
 /* ===== 按钮 ===== */
 .btn {
-    background: #21262d;
-    border: 1px solid #30363d;
-    color: #e6edf3;
-    border-radius: 6px;
-    padding: 5px 14px;
-    font-size: 13px;
-    cursor: pointer;
-    transition: background 0.15s;
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #e6edf3;
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
 }
 
 .btn:hover:not(:disabled) {
-    background: #30363d;
+  background: #30363d;
 }
 
 .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn-primary {
-    background: #1f6feb;
-    border-color: #1f6feb;
+  background: #1f6feb;
+  border-color: #1f6feb;
 }
 
 .btn-primary:hover:not(:disabled) {
-    background: #388bfd;
+  background: #388bfd;
 }
 
 .btn-danger {
-    color: #f85149;
+  color: #f85149;
 }
 
 /* 重新授权（会话过期时才出现） */
 .btn-warn {
-    background: rgba(210, 153, 34, 0.15);
-    border-color: rgba(210, 153, 34, 0.5);
-    color: #e3b341;
+  background: rgba(210, 153, 34, 0.15);
+  border-color: rgba(210, 153, 34, 0.5);
+  color: #e3b341;
 }
 
 .btn-warn:hover:not(:disabled) {
-    background: rgba(210, 153, 34, 0.25);
+  background: rgba(210, 153, 34, 0.25);
 }
 
 .btn-block {
-    width: 100%;
-    margin-top: 10px;
+  width: 100%;
+  margin-top: 10px;
 }
 
 .btn-ghost {
-    background: transparent;
-    border-color: transparent;
-    color: #8b949e;
+  background: transparent;
+  border-color: transparent;
+  color: #8b949e;
 }
 
-/* ⓘ 帮助按钮 */
-.btn-help {
-    border-radius: 50%;
-    padding: 0;
-    width: 24px;
-    height: 24px;
-    line-height: 1;
-    color: #8b949e;
+/* ⓘ/⚙ 圆形图标按钮：图标改用 lucide SVG（App.jsx 里 <Info/> <Settings/>），
+   SVG 是真实盒子，flex 居中即精确居中，不再有字符字体的基线/字形框偏移问题 */
+.btn-help,
+.btn-settings {
+  border-radius: 50%;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  color: #8b949e;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
-
 
 /* 版本/更新弹窗的键值行 */
 .version-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 6px 0;
-    font-size: 13px;
-    color: #8b949e;
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 13px;
+  color: #8b949e;
 }
 
 .version-row b {
-    color: #e6edf3;
-    font-weight: 600;
+  color: #e6edf3;
+  font-weight: 600;
+}
+
+/* 项目地址：可点击跳转的链接 */
+.version-link {
+  color: #58a6ff;
+  text-decoration: none;
+}
+
+.version-link:hover {
+  text-decoration: underline;
+}
+
+/* 设置弹窗的单选项行 */
+.settings-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 4px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.settings-option:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.settings-option-label {
+  display: block;
+  color: #e6edf3;
+  font-size: 13px;
+}
+
+.settings-option .hint {
+  display: block;
+  font-size: 12px;
 }
 
 /* ===== 徽标 ===== */
-.badge-live, .badge-unsaved {
-    font-size: 11px;
-    font-weight: 500;
-    padding: 2px 8px;
-    border-radius: 999px;
-    margin-left: 8px;
+.badge-live,
+.badge-unsaved {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: 8px;
 }
 
 .badge-live {
-    color: #3fb950;
-    background: rgba(63, 185, 80, 0.15);
-    border: 1px solid rgba(63, 185, 80, 0.4);
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.15);
+  border: 1px solid rgba(63, 185, 80, 0.4);
 }
 
 .badge-unsaved {
-    color: #d29922;
-    background: rgba(210, 153, 34, 0.12);
+  color: #d29922;
+  background: rgba(210, 153, 34, 0.12);
 }
 
 /* 会话过期徽标（红色，明确需要重新授权） */
 .badge-expired {
-    font-size: 11px;
-    font-weight: 500;
-    padding: 2px 8px;
-    border-radius: 999px;
-    margin-left: 8px;
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.12);
-    border: 1px solid rgba(248, 81, 73, 0.4);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: 8px;
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.12);
+  border: 1px solid rgba(248, 81, 73, 0.4);
+}
+
+/* OAuth 分步进度（等待授权 → 保存账号），添加账号弹窗与重新授权面板共用 */
+.oauth-steps {
+  margin: 10px 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.oauth-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #8b949e; /* 未进行到的步骤灰显 */
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.oauth-step.active {
+  color: #e6edf3;
+  font-weight: 500;
+  background: rgba(31, 111, 235, 0.12);
+}
+
+.oauth-step.done {
+  color: #3fb950;
+}
+
+.oauth-step.failed {
+  color: #f85149;
+}
+
+.oauth-step-dot {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid #30363d;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  background: #0d1117;
+}
+
+.oauth-step.active .oauth-step-dot {
+  border-color: #58a6ff;
+  box-shadow: 0 0 6px rgba(88, 166, 255, 0.4);
+}
+
+.oauth-step.done .oauth-step-dot {
+  border-color: rgba(63, 185, 80, 0.6);
+}
+
+.oauth-step.failed .oauth-step-dot {
+  border-color: rgba(248, 81, 73, 0.6);
+}
+
+/* 进行中的小转圈：圆点内一颗 + 标签后一颗，双保险保证肉眼可见 */
+.spin {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(88, 166, 255, 0.3);
+  border-top-color: #58a6ff;
+  border-radius: 50%;
+  animation: oauth-spin 0.7s linear infinite;
+}
+
+.spin.inline {
+  margin-left: 6px;
+  vertical-align: -1px;
+}
+
+@keyframes oauth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 轮询心跳：每次检测到点刷新，绿色呼吸 */
+.poll-heart {
+  color: #8b949e;
+  font-size: 10px;
+}
+
+.poll-heart.on {
+  color: #3fb950;
+  text-shadow: 0 0 5px rgba(63, 185, 80, 0.7);
+  animation: oauth-heart 2s ease-in-out infinite;
+}
+
+@keyframes oauth-heart {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }
 
 /* 重新授权等待面板（行内展开） */
 .reauth-panel {
-    margin-top: 10px;
-    padding: 10px 12px;
-    border: 1px solid rgba(210, 153, 34, 0.35);
-    border-radius: 8px;
-    background: rgba(210, 153, 34, 0.06);
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(210, 153, 34, 0.35);
+  border-radius: 8px;
+  background: rgba(210, 153, 34, 0.06);
 }
 
 .reauth-panel .hint {
-    margin: 0 0 8px;
+  margin: 0 0 8px;
 }
 
 .reauth-panel textarea {
-    width: 100%;
-    box-sizing: border-box;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #e6edf3;
-    font-size: 12px;
-    padding: 6px 8px;
-    resize: vertical;
-    font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #e6edf3;
+  font-size: 12px;
+  padding: 6px 8px;
+  resize: vertical;
+  font-family: inherit;
 }
 
 .reauth-panel textarea:focus {
-    outline: none;
-    border-color: #1f6feb;
+  outline: none;
+  border-color: #1f6feb;
 }
 
 .reauth-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 /* ===== 账号列表（一行一个） ===== */
 .list {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .empty {
-    color: #8b949e;
-    text-align: center;
-    padding: 48px 0;
+  color: #8b949e;
+  text-align: center;
+  padding: 48px 0;
 }
 
 .row {
-    display: flex;
-    align-items: flex-start;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 10px;
-    padding: 12px 16px;
+  display: flex;
+  align-items: flex-start;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  padding: 12px 16px;
 }
 
 .row-current {
-    border-color: #1f6feb;
+  border-color: #1f6feb;
 }
 
 .row-guest {
-    border-style: dashed;
+  border-style: dashed;
 }
 
 .row-main {
-    flex: 1;
-    min-width: 0;
+  flex: 1;
+  min-width: 0;
 }
 
 .row-title {
-    display: flex;
-    align-items: center;
+  display: flex;
+  align-items: center;
 }
 
 .row-label {
-    font-weight: 600;
-    font-size: 14px;
-    cursor: default;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: default;
 }
 
 .row-meta {
-    color: #8b949e;
-    font-size: 12px;
-    margin-top: 5px;
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    flex-wrap: nowrap;
-    overflow: hidden;
+  color: #8b949e;
+  font-size: 12px;
+  margin-top: 5px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 
 .meta-provider {
-    color: #c9d1d9;
+  color: #c9d1d9;
 }
 
 .meta-id {
-    color: #6e7681;
+  color: #6e7681;
 }
 
 .meta-note {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 /* 操作按钮固定右上角，不随额度内容多少移动 */
 .row-actions {
-    display: flex;
-    gap: 8px;
-    flex-shrink: 0;
-    margin-left: 16px;
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 16px;
 }
 
 .row-actions .btn {
-    padding: 4px 12px;
-    font-size: 12px;
-    white-space: nowrap;
+  padding: 4px 12px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .rename-input {
-    width: 180px;
-    background: #0d1117;
-    border: 1px solid #1f6feb;
-    border-radius: 6px;
-    color: #e6edf3;
-    padding: 3px 8px;
-    font-size: 13px;
+  width: 180px;
+  background: #0d1117;
+  border: 1px solid #1f6feb;
+  border-radius: 6px;
+  color: #e6edf3;
+  padding: 3px 8px;
+  font-size: 13px;
 }
 
 /* ===== 额度面板 ===== */
 .quota-panel {
-    margin-top: 10px;
-    border-top: 1px solid #21262d;
-    padding-top: 10px;
-    font-size: 12px;
-    color: #8b949e;
-    font-variant-numeric: tabular-nums; /* 数字等宽，上下行对齐 */
+  margin-top: 10px;
+  border-top: 1px solid #21262d;
+  padding-top: 10px;
+  font-size: 12px;
+  color: #8b949e;
+  font-variant-numeric: tabular-nums; /* 数字等宽，上下行对齐 */
 }
 
 .quota-empty {
-    color: #6e7681;
+  color: #6e7681;
 }
 
 .quota-reset-cards {
-    margin-top: 6px;
+  margin-top: 6px;
 }
 
 .quota-row {
-    display: flex;
-    gap: 14px;
-    flex-wrap: wrap;
-    align-items: center;
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .tier {
-    color: #d29922;
-    border: 1px solid rgba(210, 153, 34, 0.4);
-    border-radius: 4px;
-    padding: 0 6px;
+  color: #d29922;
+  border: 1px solid rgba(210, 153, 34, 0.4);
+  border-radius: 4px;
+  padding: 0 6px;
 }
 
 /* 关键数字 */
 .num-remaining {
-    color: #3fb950;
-    font-weight: 600;
+  color: #3fb950;
+  font-weight: 600;
 }
 
 .num-dim {
-    color: #6e7681;
+  color: #6e7681;
 }
 
-.pct-low { color: #3fb950; }
-.pct-mid { color: #d29922; }
-.pct-high { color: #f85149; }
+.pct-low {
+  color: #3fb950;
+}
+.pct-mid {
+  color: #d29922;
+}
+.pct-high {
+  color: #f85149;
+}
 
 /* 使用率迷你进度条 */
 .pct-bar {
-    display: inline-block;
-    width: 60px;
-    height: 5px;
-    margin-left: 6px;
-    vertical-align: middle;
-    background: #21262d;
-    border-radius: 3px;
-    overflow: hidden;
+  display: inline-block;
+  width: 60px;
+  height: 5px;
+  margin-left: 6px;
+  vertical-align: middle;
+  background: #21262d;
+  border-radius: 3px;
+  overflow: hidden;
 }
 
 .pct-bar-fill {
-    display: block;
-    height: 100%;
-    background: currentColor;
+  display: block;
+  height: 100%;
+  background: currentColor;
 }
 
 /* 套餐明细行：名称 | 数值 两列对齐 */
 .quota-item {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: baseline;
-    margin-top: 4px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  margin-top: 4px;
 }
 
 .quota-item-name {
-    color: #c9d1d9;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  color: #c9d1d9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .quota-item-value {
-    text-align: right;
+  text-align: right;
 }
 
 /* Coding Plan 限额：单容器 grid，列宽跨行共享（名称 | 已用/总量 | 百分比 | 重置时间） */
 .quota-limits {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto 110px minmax(118px, auto);
-    column-gap: 12px;
-    row-gap: 4px;
-    align-items: baseline;
-    margin-top: 4px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 110px minmax(118px, auto);
+  column-gap: 12px;
+  row-gap: 4px;
+  align-items: baseline;
+  margin-top: 4px;
 }
 
 .quota-limit-usage b {
-    color: #c9d1d9;
-    font-weight: 600;
+  color: #c9d1d9;
+  font-weight: 600;
 }
 
 .quota-limit-pct {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    justify-content: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
 }
 
 .quota-limit-pct .pct-bar {
-    margin-left: 0; /* flex gap 已提供间距 */
+  margin-left: 0; /* flex gap 已提供间距 */
 }
 
 .reset-time {
-    color: #8b949e;
+  color: #8b949e;
 }
 
 .quota-coding-plan {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px dashed #30363d;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #30363d;
 }
 
 .valid-period {
-    color: #8b949e;
-    font-size: 11px;
+  color: #8b949e;
+  font-size: 11px;
 }
 
 /* ===== 帮助弹窗 ===== */
 .help-title {
-    margin: 0 0 10px;
-    font-size: 14px;
+  margin: 0 0 10px;
+  font-size: 14px;
 }
 
 .help-glossary {
-    margin: 0;
-    font-size: 12px;
-    color: #8b949e;
-    max-height: 50vh;
-    overflow-y: auto;
+  margin: 0;
+  font-size: 12px;
+  color: #8b949e;
+  max-height: 50vh;
+  overflow-y: auto;
 }
 
 .help-term {
-    display: grid;
-    grid-template-columns: 110px 1fr;
-    gap: 10px;
-    padding: 5px 0;
-    border-bottom: 1px solid #21262d;
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid #21262d;
 }
 
 .help-term:last-child {
-    border-bottom: none;
+  border-bottom: none;
 }
 
 .help-term dt {
-    color: #c9d1d9;
-    font-weight: 600;
+  color: #c9d1d9;
+  font-weight: 600;
 }
 
 .help-term dd {
-    margin: 0;
+  margin: 0;
 }
 
 /* ===== 弹窗 ===== */
 .modal-mask {
-    position: fixed;
-    inset: 0;
-    background: rgba(1, 4, 9, 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
+  position: fixed;
+  inset: 0;
+  background: rgba(1, 4, 9, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+/* 确认类弹窗置顶：关闭行为询问 / 危险操作确认可能在其他弹窗打开时弹出
+   （如添加账号进行中点 Dock 退出），同级 z-index 下会被后渲染的弹窗盖住
+   导致"确认框看不见、无法退出"（实测踩坑） */
+.modal-mask-top {
+  z-index: 200;
 }
 
 .modal {
-    width: 440px;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 12px;
-    padding: 20px;
+  width: 440px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 20px;
 }
 
 .modal-tabs {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 16px;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
 }
 
 .tab {
-    flex: 1;
-    background: transparent;
-    border: 1px solid #30363d;
-    color: #8b949e;
-    border-radius: 6px;
-    padding: 7px 0;
-    cursor: pointer;
-    font-size: 13px;
+  flex: 1;
+  background: transparent;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  border-radius: 6px;
+  padding: 7px 0;
+  cursor: pointer;
+  font-size: 13px;
 }
 
 .tab.active {
-    color: #e6edf3;
-    border-color: #1f6feb;
-    background: rgba(31, 111, 235, 0.12);
+  color: #e6edf3;
+  border-color: #1f6feb;
+  background: rgba(31, 111, 235, 0.12);
 }
 
 .field {
-    margin-bottom: 12px;
+  margin-bottom: 12px;
 }
 
 .field label {
-    display: block;
-    font-size: 12px;
-    color: #8b949e;
-    margin-bottom: 5px;
+  display: block;
+  font-size: 12px;
+  color: #8b949e;
+  margin-bottom: 5px;
 }
 
-.field input, .field textarea {
-    width: 100%;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #e6edf3;
-    padding: 7px 10px;
-    font-size: 13px;
-    font-family: inherit;
-    resize: vertical;
+.field input,
+.field textarea {
+  width: 100%;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #e6edf3;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
 }
 
-.field input:focus, .field textarea:focus {
-    outline: none;
-    border-color: #1f6feb;
+.field input:focus,
+.field textarea:focus {
+  outline: none;
+  border-color: #1f6feb;
 }
 
 .hint {
-    font-size: 12px;
-    color: #8b949e;
-    line-height: 1.6;
+  font-size: 12px;
+  color: #8b949e;
+  line-height: 1.6;
 }
 
 /* ===== Toast ===== */
 .modal-sm {
-    width: 340px;
+  width: 340px;
 }
 
 .confirm-text {
-    margin: 4px 0 18px;
-    line-height: 1.6;
+  margin: 4px 0 18px;
+  line-height: 1.6;
 }
 
 .confirm-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .btn-danger-solid {
-    background: #da3633;
-    border-color: #da3633;
-    color: #fff;
+  background: #da3633;
+  border-color: #da3633;
+  color: #fff;
 }
 
 .btn-danger-solid:hover:not(:disabled) {
-    background: #f85149;
+  background: #f85149;
 }
 
 .hint.warn {
-    color: #d29922;
+  color: #d29922;
 }
 
 .quota-error {
-    color: #ffa198;
+  color: #ffa198;
 }
 
 .provider-choices {
-    display: flex;
-    gap: 8px;
+  display: flex;
+  gap: 8px;
 }
 
 .choice {
-    flex: 1;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    color: #8b949e;
-    border-radius: 6px;
-    padding: 8px 0;
-    cursor: pointer;
-    font-size: 13px;
+  flex: 1;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  border-radius: 6px;
+  padding: 8px 0;
+  cursor: pointer;
+  font-size: 13px;
 }
 
 .choice.active {
-    color: #e6edf3;
-    border-color: #1f6feb;
-    background: rgba(31, 111, 235, 0.12);
+  color: #e6edf3;
+  border-color: #1f6feb;
+  background: rgba(31, 111, 235, 0.12);
+}
+
+/* 渠道被本机 ZCode 版本禁用（如 zai_cn 需 ≥3.18.2） */
+.choice:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 版本不兼容的行内警示（添加账号弹窗） */
+.warn-line {
+  color: #d29922;
 }
 
 /* ===== Toast ===== */
 .toast {
-    position: fixed;
-    bottom: 28px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 10px 20px;
-    font-size: 13px;
-    z-index: 200;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 13px;
+  z-index: 200;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 .toast-error {
-    border-color: #f85149;
-    color: #ffa198;
+  border-color: #f85149;
+  color: #ffa198;
 }
