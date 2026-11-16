@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -19,9 +22,36 @@ const (
 
 var ErrZCodeNotRunning = errors.New("ZCode 未在运行")
 
-// IsZCodeRunning 检测 ZCode 主进程是否在运行（-x 精确匹配，不会误匹配 Helper 进程）。
+// zcodePIDs 枚举 ZCode 主进程 PID。
+// 不用 pgrep/pkill：实测部分 macOS（darwin 27）上 pgrep 会漏掉个别进程——
+// ZCode 主进程对 pgrep 完全不可见（ps 能看到），导致运行检测恒为 false、
+// 切换账号时不杀进程直接写登录态文件，客户端内存里的旧会话把切换"吃掉"。
+// ps 的进程枚举是完整的，按 comm 精确匹配主进程名（不误伤 Helper）。
+func zcodePIDs() []int {
+	out, err := exec.Command("ps", "-axo", "pid=,comm=").Output()
+	if err != nil {
+		return nil
+	}
+	var pids []int
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.SplitN(strings.TrimSpace(line), " ", 2)
+		if len(fields) != 2 {
+			continue
+		}
+		if filepath.Base(strings.TrimSpace(fields[1])) != ProcessName {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err == nil {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
+// IsZCodeRunning 检测 ZCode 主进程是否在运行。
 func IsZCodeRunning() bool {
-	return exec.Command("pgrep", "-x", ProcessName).Run() == nil
+	return len(zcodePIDs()) > 0
 }
 
 // KillZCode 先 SIGTERM 优雅退出，超时后 SIGKILL 升级，再等确认。
@@ -29,11 +59,15 @@ func KillZCode(wait time.Duration) error {
 	if !IsZCodeRunning() {
 		return nil
 	}
-	_ = exec.Command("pkill", "-x", ProcessName).Run()
+	for _, pid := range zcodePIDs() {
+		_ = syscall.Kill(pid, syscall.SIGTERM)
+	}
 	if waitGone(wait) {
 		return nil
 	}
-	_ = exec.Command("pkill", "-9", "-x", ProcessName).Run()
+	for _, pid := range zcodePIDs() {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+	}
 	if waitGone(3 * time.Second) {
 		return nil
 	}
