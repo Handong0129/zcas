@@ -66,6 +66,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
+      # wails 的 -nsis 在 makensis 不在 PATH 时只打 Warning 就跳过安装器（退出码 0），
+      # 后续归集产物才会失败——必须在构建前确保 NSIS 可用（choco shim 进 PATH）
+      - name: 安装 NSIS
+        run: choco install nsis -y
       - name: 版本号
         shell: bash
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
@@ -92,6 +96,10 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           $installer = Get-ChildItem "app/build/bin/*-installer.exe" | Select-Object -First 1
+          if (-not $installer) {
+            Get-ChildItem "app/build/bin" | Format-Table Name, Length
+            throw "未找到 *-installer.exe：wails -nsis 被跳过（多半是 makensis 不在 PATH，检查「构建 GUI」步骤是否有 makensis not found 警告）"
+          }
           Copy-Item $installer.FullName "dist/zcas-$env:VERSION-windows-${{ matrix.arch }}-installer.exe"
           Compress-Archive -Path "app/build/bin/zcas.exe" -DestinationPath "dist/zcas-$env:VERSION-windows-${{ matrix.arch }}-cli.zip" -Force
       - uses: actions/upload-artifact@v4
