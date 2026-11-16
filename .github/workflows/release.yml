@@ -67,9 +67,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
       # wails 的 -nsis 在 makensis 不在 PATH 时只打 Warning 就跳过安装器（退出码 0），
-      # 后续归集产物才会失败——必须在构建前确保 NSIS 可用（choco shim 进 PATH）
-      - name: 安装 NSIS
-        run: choco install nsis -y
+      # 后续归集产物才会失败。choco 的 NSIS 包不自动把 makensis 加进 PATH，必须显式写入
+      # GITHUB_PATH（对后续步骤生效），并当场验证 makensis 可执行。
+      - name: 安装 NSIS 并加入 PATH
+        shell: pwsh
+        run: |
+          choco install nsis -y
+          $nsisDir = "${env:ProgramFiles(x86)}\NSIS"
+          if (-not (Test-Path "$nsisDir\makensis.exe")) { $nsisDir = "C:\Program Files\NSIS" }
+          Add-Content $env:GITHUB_PATH $nsisDir
+          & "$nsisDir\makensis.exe" /VERSION
       - name: 版本号
         shell: bash
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
@@ -78,11 +85,15 @@ jobs:
         shell: bash
         run: echo "VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-      # GUI 用 -o zcas-gui，与下面 CLI 的 zcas.exe 区分开，避免同名互相覆盖
+      # GUI 用 -o zcas-gui，与下面 CLI 的 zcas.exe 区分开，避免同名互相覆盖。
+      # 前置校验 makensis（防 wails 静默跳过安装器）；构建后列出产物留证。
       - name: 构建 GUI（-nsis 自动生成安装器）
         working-directory: app
         shell: bash
-        run: wails build -clean -platform windows/${{ matrix.arch }} -o zcas-gui -nsis
+        run: |
+          command -v makensis || { echo "::error::makensis 不在 PATH，NSIS 安装器会被静默跳过"; exit 1; }
+          wails build -clean -platform windows/${{ matrix.arch }} -o zcas-gui -nsis
+          ls -la build/bin
       - name: 构建 CLI
         shell: bash
         env:
