@@ -14,8 +14,11 @@ import "sync/atomic"
 // Item 托盘菜单项声明。Action 非空表示可点击（点击时以 Action 回调）；
 // Action 为空的项按纯展示处理（配合 Disabled 做状态行/标题行）。
 // Bar 非空时（0-100）在标题后渲染进度条：darwin 用绿色文字块，其他平台用 Unicode 块。
+// Hint 非空时作为标题行的次级提示：darwin 渲染为行右侧灰色小字（自绘视图），
+// 其他平台不支持行内右对齐，拼进标题（「标题（提示）」）。
 type Item struct {
 	Title     string   `json:"title"`
+	Hint      string   `json:"hint,omitempty"`
 	Tooltip   string   `json:"tooltip,omitempty"`
 	Action    string   `json:"action,omitempty"`
 	Disabled  bool     `json:"disabled,omitempty"`

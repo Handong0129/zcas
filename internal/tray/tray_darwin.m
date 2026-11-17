@@ -66,6 +66,31 @@ __attribute__((constructor)) static void zcasSwizzleWailsTerminate(void) {
 - (void)onTrayItem:(NSMenuItem *)sender;
 @end
 
+// MenuHeaderView 分组标题行：左侧标题 + 右侧灰色小字提示（如「账号额度 … 点击切换」）。
+// 纯展示不可点击，无悬浮高亮——与普通禁用项的观感一致。
+@interface MenuHeaderView : NSView
+@property (copy) NSString *title;
+@property (copy) NSString *hint;
+@end
+
+@implementation MenuHeaderView
+- (void)drawRect:(NSRect)dirtyRect {
+    NSRect b = self.bounds;
+    NSDictionary *titleAttrs = @{
+        NSFontAttributeName: [NSFont menuFontOfSize:12],
+        NSForegroundColorAttributeName: NSColor.secondaryLabelColor
+    };
+    NSDictionary *hintAttrs = @{
+        NSFontAttributeName: [NSFont menuFontOfSize:11],
+        NSForegroundColorAttributeName: NSColor.tertiaryLabelColor
+    };
+    [self.title drawInRect:NSMakeRect(8, 4.5, b.size.width - 16, 15) withAttributes:titleAttrs];
+    CGSize hs = [self.hint sizeWithAttributes:hintAttrs];
+    [self.hint drawInRect:NSMakeRect(b.size.width - 8 - hs.width, 5.5, hs.width + 2, 14)
+           withAttributes:hintAttrs];
+}
+@end
+
 // QuotaBarView 账号额度菜单项的自定义视图：账号名 + 百分比，下方一整行小高度圆角进度条
 //（配色与主界面一致：余量充足绿 / 偏低黄 / 告急红）。有 action 时点击可触发。
 @interface QuotaBarView : NSView
@@ -87,14 +112,24 @@ __attribute__((constructor)) static void zcasSwizzleWailsTerminate(void) {
 
 - (void)drawRect:(NSRect)dirtyRect {
     NSRect b = self.bounds;
+    // 悬浮高亮：view 菜单项不享受 AppKit 的自动高亮（自绘绕过了普通项的绘制路径），
+    // 这里查 enclosingMenuItem 的 isHighlighted 自绘选中背景 + 白字，
+    // 与「恢复窗口」等普通项的可点击观感对齐；仅可点击行（action 非空）响应。
+    BOOL hot = self.action.length > 0 && self.enclosingMenuItem.isHighlighted;
+    if (hot) {
+        [NSColor.selectedContentBackgroundColor setFill];
+        NSBezierPath *bg = [NSBezierPath bezierPathWithRect:b];
+        [bg fill];
+    }
     NSDictionary *nameAttrs = @{
         NSFontAttributeName: [NSFont menuFontOfSize:12],
-        NSForegroundColorAttributeName: NSColor.labelColor
+        NSForegroundColorAttributeName: hot ? NSColor.whiteColor : NSColor.labelColor
     };
     [self.title drawInRect:NSMakeRect(8, b.size.height - 18, b.size.width - 56, 16)
             withAttributes:nameAttrs];
     if (self.current) {
-        // 当前账号标记：名称右侧的小绿点（与进度条充足色一致）
+        // 当前账号标记：名称右侧的小绿点（与进度条充足色一致）；
+        // 当前行 action 为空、永不进入高亮，无需适配蓝底
         CGFloat tx = 8 + [self.title sizeWithAttributes:nameAttrs].width + 6;
         NSRect dot = NSMakeRect(tx, b.size.height - 13.5, 6, 6);
         NSBezierPath *p = [NSBezierPath bezierPathWithOvalInRect:dot];
@@ -108,10 +143,15 @@ __attribute__((constructor)) static void zcasSwizzleWailsTerminate(void) {
                                    pctSize.width + 2, 16)
          withAttributes:nameAttrs];
 
-    // 进度条：轨道浅灰圆角，填充色按余量分级（对应主界面 pct-low/mid/high）
+    // 进度条：轨道浅灰圆角（高亮时换半透明白，灰字色在蓝底上发闷），填充色按余量分级
+    //（对应主界面 pct-low/mid/high；绿/黄/红在选中蓝底上依然清晰，不用换）
     NSRect bar = NSMakeRect(8, 7, b.size.width - 16, 5);
     NSBezierPath *track = [NSBezierPath bezierPathWithRoundedRect:bar xRadius:2.5 yRadius:2.5];
-    [NSColor.quaternaryLabelColor setFill];
+    NSColor *trackColor = NSColor.quaternaryLabelColor;
+    if (hot) {
+        trackColor = [NSColor.whiteColor colorWithAlphaComponent:0.35];
+    }
+    [trackColor setFill];
     [track fill];
     double fill = self.usedPct / 100.0;
     if (fill < 0) fill = 0;
@@ -184,6 +224,17 @@ static void addItems(NSMenu *menu, NSArray *items) {
             continue;
         }
         NSString *title = d[@"title"] ?: @"";
+        NSString *hint = d[@"hint"];
+        if (hint.length > 0) {
+            // 标题行带次级提示：左侧标题 + 右侧灰色小字（MenuHeaderView 自绘）
+            MenuHeaderView *v = [[MenuHeaderView alloc] initWithFrame:NSMakeRect(0, 0, 250, 24)];
+            v.title = title;
+            v.hint = hint;
+            NSMenuItem *mi = [[NSMenuItem alloc] init];
+            [mi setView:v];
+            [menu addItem:mi];
+            continue;
+        }
         id barVal = d[@"bar"];
         if (barVal != nil && [barVal respondsToSelector:@selector(doubleValue)]) {
             // 额度行：账号名 + 一整行小进度条（QuotaBarView 自绘），custom view 菜单项

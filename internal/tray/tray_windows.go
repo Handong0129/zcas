@@ -61,6 +61,10 @@ func addAll(items []Item, parent *systray.MenuItem, onClick func(string)) {
 			continue
 		}
 		title := it.Title
+		if it.Hint != "" {
+			// 原生菜单不支持行内右对齐的次级文本，提示直接拼进标题
+			title = fmt.Sprintf("%s（%s）", it.Title, it.Hint)
+		}
 		if it.Bar != nil {
 			// Windows 原生菜单不支持富文本/自绘行（hbmpItem 图标位实测不稳），
 			// 用彩色 emoji 方块当进度条：Win10/11 菜单按彩色渲染。

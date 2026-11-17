@@ -137,14 +137,15 @@ func (t *trayLoop) buildMenu() []tray.Item {
 		menu = append(menu, tray.Item{Title: "启动 ZCode", Action: "launch"})
 	}
 
-	// 账号子菜单：切换与额度合一——每项一个账号，点击即切换，标题后是 5 小时额度进度条；
-	// 当前账号打 ✓ 并禁用（无谓切到自己），额度读共享存储（最新一次查询结果，
+	// 账号与额度直接平铺在主菜单（不进二级子菜单）：个人账号数量有限，
+	// 少一层进出更直接。每项点击即切换，额度读共享存储（最新一次查询结果，
 	// 主界面刷新/菜单展开/后台巡检都会喂它，无需手动刷新入口）。
 	currentID := ""
 	if state.Current != nil {
 		currentID = state.Current.SavedID
 	}
-	accountItems := []tray.Item{}
+	menu = append(menu, tray.Item{Separator: true},
+		tray.Item{Title: "账号额度", Disabled: true, Hint: "点击切换"})
 	for _, m := range state.Accounts {
 		it := tray.Item{Title: m.Label, Tooltip: "点击切换并重启 ZCode", Bar: quotaBar5h(t.app.quotas.get(m.ID))}
 		if m.ID == currentID {
@@ -154,12 +155,11 @@ func (t *trayLoop) buildMenu() []tray.Item {
 		} else {
 			it.Action = "use:" + m.ID
 		}
-		accountItems = append(accountItems, it)
+		menu = append(menu, it)
 	}
-	if len(accountItems) == 0 {
-		accountItems = []tray.Item{{Title: "（没有保存的账号）", Disabled: true}}
+	if len(state.Accounts) == 0 {
+		menu = append(menu, tray.Item{Title: "（没有保存的账号）", Disabled: true})
 	}
-	menu = append(menu, tray.Item{Title: "账号额度", Children: accountItems})
 
 	menu = append(menu,
 		tray.Item{Separator: true},
