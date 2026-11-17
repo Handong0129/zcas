@@ -18,27 +18,16 @@ import (
 	"zcas/internal/tray"
 )
 
-// quotaCacheTTL 托盘额度缓存有效期：菜单展开时超过该时长才重新查（额度走网络，别每次点开都请求）。
-const quotaCacheTTL = 10 * time.Minute
-
-// quotaEntry 托盘额度缓存条目：5 小时窗口剩余百分比 + 查询时间。
-type quotaEntry struct {
-	bar *float64 // 剩余占比（0-100），nil=未查到
-	at  time.Time
-}
-
-// trayLoop 托盘生命周期管理：菜单构建、额度缓存、点击分发、真退出。
+// trayLoop 托盘生命周期管理：菜单构建、点击分发、真退出。
+// 额度数据统一走 App 层共享存储（见 quotastore.go），这里只按节流触发补查、构建展示。
 // 平台差异收敛在 internal/tray（darwin 自建 NSStatusItem / windows energye-systray / 其他 no-op）。
 type trayLoop struct {
 	app *App
-
-	mu     sync.Mutex
-	tr     tray.Controller
-	quotas map[string]quotaEntry // 账号 id → 缓存（""=当前登录账号）
+	tr  tray.Controller
 }
 
 func newTrayLoop(app *App) *trayLoop {
-	t := &trayLoop{app: app, quotas: map[string]quotaEntry{}}
+	t := &trayLoop{app: app}
 	t.tr = tray.New()
 	return t
 }
@@ -49,19 +38,20 @@ func (t *trayLoop) start() {
 	// Dock 图标点击（应用已运行）：托盘态下恢复主窗口（wails 未实现 reopen，darwin 层动态补挂）
 	tray.OnDockIconClick = t.app.showMainWindow
 	tray.OnOpen = func() {
-		// 菜单展开回调（仅 darwin，主线程同步调用）：原地重建保证本次展开就是最新状态，
-		// 顺带后台补过期的额度缓存（结果回来时菜单若还开着，会挂起等关闭后套用）
+		// 菜单展开回调（darwin=menuWillOpen 主线程同步 / windows=SetOnRClick 弹出前同步）：
+		// 原地重建保证本次展开就是共享存储里的最新状态（只读内存，毫秒级），
+		// 随后按短节流补查（15 秒内连开不重复查）——结果回来重建菜单，下次展开即新数据
 		t.tr.Update(t.buildMenu())
-		t.refreshStaleQuotas()
+		go t.fetchQuotas(quotaOpenFetchGap)
 	}
 	t.tr.Start(trayIconCurrent, buildinfo.Current.DisplayName, t.buildMenu())
-	// 启动即预热额度缓存：首次点开托盘菜单就有进度条，不用等「刷新额度」
+	// 启动即预热：首次点开托盘菜单就有进度条（存储为空 → 全部视为该查，直接全量）
 	go func() {
 		time.Sleep(2 * time.Second)
-		t.refreshQuotas(true)
+		t.fetchQuotas(quotaWarmFetchGap)
 	}()
-	// 周期补偿刷新：darwin 靠菜单展开回调（OnOpen）取最新，energye/Windows 托盘
-	// 没有「菜单即将展开」事件，靠每分钟的巡检兜底（只查超过 TTL 的，开销极小）
+	// 周期保活巡检：5 小时窗口会随时间自然回落，没人点开菜单时数据也会变旧；
+	// 每分钟巡检 + quotaWarmFetchGap 节流（只查超过间隔没查的账号，开销极小）
 	go func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
@@ -70,7 +60,7 @@ func (t *trayLoop) start() {
 			case <-t.app.ctx.Done():
 				return
 			case <-ticker.C:
-				t.refreshStaleQuotas()
+				t.fetchQuotas(quotaWarmFetchGap)
 			}
 		}
 	}()
@@ -106,8 +96,6 @@ func (t *trayLoop) onClick(action string) {
 		_ = platform.LaunchZCode()
 		time.Sleep(1500 * time.Millisecond) // 给进程一点起来时间再刷菜单
 		t.refreshMenu()
-	case action == "refresh-quota":
-		t.refreshQuotas(true)
 	case action == "settings":
 		a.showMainWindow()
 		wruntime.EventsEmit(a.ctx, "menu:settings")
@@ -121,7 +109,7 @@ func (t *trayLoop) onClick(action string) {
 		go func() {
 			// 切换失败也不弹窗：下次打开菜单看到的还是旧状态即自说明
 			_, _ = switcher.Use(id, true)
-			t.refreshQuotas(true)
+			t.fetchQuotas(quotaOpenFetchGap)
 			t.refreshMenu()
 		}()
 	}
@@ -150,14 +138,15 @@ func (t *trayLoop) buildMenu() []tray.Item {
 	}
 
 	// 账号子菜单：切换与额度合一——每项一个账号，点击即切换，标题后是 5 小时额度进度条；
-	// 当前账号打 ✓ 并禁用（无谓切到自己），额度用缓存（TTL 内不重复请求）。
+	// 当前账号打 ✓ 并禁用（无谓切到自己），额度读共享存储（最新一次查询结果，
+	// 主界面刷新/菜单展开/后台巡检都会喂它，无需手动刷新入口）。
 	currentID := ""
 	if state.Current != nil {
 		currentID = state.Current.SavedID
 	}
 	accountItems := []tray.Item{}
 	for _, m := range state.Accounts {
-		it := tray.Item{Title: m.Label, Tooltip: "点击切换并重启 ZCode", Bar: t.quotaBar(m.ID)}
+		it := tray.Item{Title: m.Label, Tooltip: "点击切换并重启 ZCode", Bar: quotaBar5h(t.app.quotas.get(m.ID))}
 		if m.ID == currentID {
 			it.Checked = true // 当前账号：名称右侧绿色圆点（darwin 视图自绘）
 			it.Disabled = true
@@ -170,10 +159,6 @@ func (t *trayLoop) buildMenu() []tray.Item {
 	if len(accountItems) == 0 {
 		accountItems = []tray.Item{{Title: "（没有保存的账号）", Disabled: true}}
 	}
-	accountItems = append(accountItems,
-		tray.Item{Separator: true},
-		tray.Item{Title: "刷新额度", Action: "refresh-quota"},
-	)
 	menu = append(menu, tray.Item{Title: "账号额度", Children: accountItems})
 
 	menu = append(menu,
@@ -186,89 +171,32 @@ func (t *trayLoop) buildMenu() []tray.Item {
 	return menu
 }
 
-// quotaBar 账号菜单项的额度进度条数据（剩余百分比）；无缓存返回 nil。
-func (t *trayLoop) quotaBar(id string) *float64 {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if e, ok := t.quotas[id]; ok {
-		return e.bar
-	}
-	return nil
-}
-
-func (t *trayLoop) putQuota(id string, bar *float64) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if bar == nil {
-		// 查询失败：保留上次的成功数据（若有），且不记时间戳——
-		// 让 TTL 判定始终视为过期，下个刷新周期自动重试
-		if e, ok := t.quotas[id]; ok && e.bar != nil {
-			return
-		}
-		t.quotas[id] = quotaEntry{}
-		return
-	}
-	t.quotas[id] = quotaEntry{bar: bar, at: time.Now()}
-}
-
-// refreshStaleQuotas 后台补查超过 TTL 的额度缓存，完成后刷新菜单。
-func (t *trayLoop) refreshStaleQuotas() {
-	state := t.app.GetState()
-	t.mu.Lock()
-	var stale []string
-	for _, m := range state.Accounts {
-		if e, ok := t.quotas[m.ID]; !ok || time.Since(e.at) > quotaCacheTTL {
-			stale = append(stale, m.ID)
-		}
-	}
-	t.mu.Unlock()
-	if len(stale) == 0 {
-		return
-	}
-	go func() {
-		t.refreshQuotaIDs(stale)
-		t.refreshMenu()
-	}()
-}
-
-// refreshQuotas 重查所有账号额度（force=true 忽略 TTL），完成后刷新菜单。
-func (t *trayLoop) refreshQuotas(force bool) {
+// fetchQuotas 补查「超过 gap 没查过」的账号额度并回写共享存储，完成后重建托盘菜单（下次展开即新数据）。
+// 菜单展开/切换账号后用 quotaOpenFetchGap（用户动作，几乎每次都真查）；
+// 每分钟巡检与启动预热用 quotaWarmFetchGap（低频保活）。
+func (t *trayLoop) fetchQuotas(gap time.Duration) {
 	var ids []string
 	for _, m := range t.app.GetState().Accounts {
 		ids = append(ids, m.ID)
 	}
-	if !force {
-		t.mu.Lock()
-		kept := ids[:0]
-		for _, id := range ids {
-			if e, ok := t.quotas[id]; !ok || time.Since(e.at) > quotaCacheTTL {
-				kept = append(kept, id)
-			}
-		}
-		ids = kept
-		t.mu.Unlock()
-	}
-	if len(ids) == 0 {
+	due := t.app.quotas.due(ids, gap)
+	if len(due) == 0 {
 		return
 	}
-	go func() {
-		t.refreshQuotaIDs(ids)
-		t.refreshMenu()
-	}()
+	t.fetchIDs(due)
+	t.refreshMenu()
 }
 
-func (t *trayLoop) refreshQuotaIDs(ids []string) {
+// fetchIDs 并发查询一组账号并回写共享存储（GetQuota 成功路径内部完成回写与前端推送）。
+func (t *trayLoop) fetchIDs(ids []string) {
 	var wg sync.WaitGroup
 	for _, id := range ids {
 		wg.Add(1)
 		go func(id string) {
 			defer wg.Done()
-			ov, err := t.app.GetQuota(id)
-			if err != nil {
-				t.putQuota(id, nil)
-				return
+			if _, err := t.app.GetQuota(id); err != nil {
+				t.app.quotas.put(id, nil) // 失败：记尝试时间（节流照常生效），保留旧数据
 			}
-			t.putQuota(id, quotaBar5h(ov))
 		}(id)
 	}
 	wg.Wait()

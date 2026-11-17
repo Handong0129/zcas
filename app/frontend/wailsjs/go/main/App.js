@@ -58,6 +58,10 @@ export function LaunchZCode() {
   return window['go']['main']['App']['LaunchZCode']();
 }
 
+export function QuotaCache() {
+  return window['go']['main']['App']['QuotaCache']();
+}
+
 export function RenameAccount(arg1, arg2) {
   return window['go']['main']['App']['RenameAccount'](arg1, arg2);
 }

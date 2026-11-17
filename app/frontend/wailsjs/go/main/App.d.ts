@@ -33,6 +33,8 @@ export function KillZCode():Promise<void>;
 
 export function LaunchZCode():Promise<void>;
 
+export function QuotaCache():Promise<Record<string, quota.Overview>>;
+
 export function RenameAccount(arg1:string,arg2:string):Promise<void>;
 
 export function ResolveClose(arg1:string,arg2:boolean):Promise<void>;

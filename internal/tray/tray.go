@@ -39,7 +39,8 @@ type Controller interface {
 // OnClick 菜单项点击回调（参数为 Item.Action）。
 var OnClick func(action string)
 
-// OnOpen 菜单即将展开回调（目前仅 darwin 支持）：可在此异步重建菜单，让每次点开都是最新状态。
+// OnOpen 菜单即将展开回调（darwin=menuWillOpen / windows=SetOnRClick，均在弹出前同步调用）：
+// 可在此重建菜单，让每次点开都是最新状态。必须快速返回（只读内存级数据），不能等网络。
 var OnOpen func()
 
 // OnDockIconClick 应用已在运行时点击 Dock 图标的回调（目前仅 darwin 支持，

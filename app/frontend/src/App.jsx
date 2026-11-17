@@ -14,6 +14,7 @@ import {
   GetQuota,
   GetState,
   LaunchZCode,
+  QuotaCache,
   RenameAccount,
   ResolveClose,
   Rollback,
@@ -1080,6 +1081,9 @@ export default function App() {
   // oauth:error 事件监听注册一次，用 ref 读最新的 reauthID（避免闭包旧值）
   const reauthRef = useRef(null);
   reauthRef.current = reauthID;
+  // 同理：聚焦同步额度时用 ref 读最新的当前账号 id（quota 键映射 'current' 用）
+  const currentIdRef = useRef(null);
+  currentIdRef.current = state?.current?.savedId || null;
 
   const notify = useCallback((msg, type = 'ok') => {
     setToast({ msg, type });
@@ -1119,6 +1123,25 @@ export default function App() {
     } catch {
       /* 忽略：聚焦校正失败不影响已显示内容 */
     }
+  }, []);
+
+  // 从后端额度共享存储轻量同步（不发网络）：窗口隐藏期间后台巡检的更新不推事件，
+  // 聚焦时在这里补齐，保证主界面与托盘菜单看到的数字一致。
+  const syncQuotaCache = useCallback(() => {
+    QuotaCache()
+      .then((cache) => {
+        if (!cache) return;
+        const cur = currentIdRef.current;
+        setQuotas((q) => {
+          const n = { ...q };
+          Object.entries(cache).forEach(([id, data]) => {
+            n[id] = { loading: false, data, error: null };
+            if (id === cur) n.current = { loading: false, data, error: null };
+          });
+          return n;
+        });
+      })
+      .catch(() => {});
   }, []);
 
   // ===== 重新授权流程 =====
@@ -1182,6 +1205,19 @@ export default function App() {
     // 后端 OnBeforeClose：未设置关闭行为时弹询问（选完由后端隐藏窗口或退出）
     const offClose = EventsOn('close:confirm', () => setShowCloseConfirm(true));
     const offHealth = EventsOn('health:updated', (l) => setHealth(indexHealth(l)));
+    // 额度共享存储更新（托盘补查/后台巡检的回写）：窗口可见时直接跟进显示，
+    // 与托盘菜单数字保持一致；隐藏期间漏掉的更新由聚焦时的 syncQuotaCache 补齐。
+    // keys 含账号 id，若是当前登录账号还附带 'current'（本页两处显示共用一份数据）
+    const offQuota = EventsOn('quota:updated', (r) => {
+      if (!r?.keys?.length || !r.data) return;
+      setQuotas((q) => {
+        const n = { ...q };
+        r.keys.forEach((k) => {
+          n[k] = { loading: false, data: r.data, error: null };
+        });
+        return n;
+      });
+    });
     // 重新授权协议回调自动完成（r.reauth 标记区分于添加账号）
     const offOauthDone = EventsOn('oauth:done', (r) => {
       if (!r?.reauth) return;
@@ -1222,6 +1258,7 @@ export default function App() {
       offAbout();
       offClose();
       offHealth();
+      offQuota();
       offOauthDone();
       offOauthErr();
       offOauthStarted();
@@ -1237,7 +1274,10 @@ export default function App() {
     const applyVisibility = () => {
       const visible = document.visibilityState === 'visible';
       SetRunningWatch(visible);
-      if (visible) refreshStatus();
+      if (visible) {
+        refreshStatus();
+        syncQuotaCache();
+      }
     };
     window.addEventListener('focus', applyVisibility);
     document.addEventListener('visibilitychange', applyVisibility);
@@ -1251,7 +1291,7 @@ export default function App() {
       SetRunningWatch(false);
       offRunning();
     };
-  }, [refreshStatus]);
+  }, [refreshStatus, syncQuotaCache]);
 
   const currentId = state?.current?.savedId || null;
   const showGuestRow = state?.current && !currentId;

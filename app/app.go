@@ -48,6 +48,12 @@ type App struct {
 	// 托盘（关闭即最小化 + 状态栏快捷操作）。
 	tray *trayLoop
 
+	// quotas 额度共享存储：主界面与托盘菜单的唯一数据源（见 quotastore.go）。
+	quotas *quotaStore
+	// curSavedID 当前登录账号对应的已保存账号 id 缓存（GetState 时刷新）：
+	// 实时查询（id=""）回写共享存储时用它归档到账号键下。
+	curSavedID atomic.Pointer[string]
+
 	// ZCode 运行状态监控：watchOn 由前端按窗口可见性开关；lastRunning/haveLast
 	// 用于「变化才发事件」，避免每个轮询周期都打扰前端。
 	watchOn     atomic.Bool
@@ -68,7 +74,7 @@ type oauthPending struct {
 	cancel chan struct{}
 }
 
-func NewApp() *App { return &App{} }
+func NewApp() *App { return &App{quotas: newQuotaStore()} }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
@@ -125,6 +131,7 @@ func (a *App) GetState() *StateView {
 	if cred, cfg, err := store.ReadLive(); err == nil && hasSession(cred) {
 		if fp := fingerprint.Extract(cred, cfg, zcrypto.DefaultSecret()); fp != nil {
 			savedID := store.ResolveSavedID(fp)
+			a.curSavedID.Store(&savedID) // 实时额度查询回写共享存储时按它归档
 			view.Current = &CurrentView{
 				Label: fp.Label, Provider: fp.Provider, ShortID: fp.ShortID,
 				Email: fp.Email, Saved: savedID != "",
@@ -682,6 +689,7 @@ func (a *App) DeleteAccount(id string) error {
 	if err := store.Delete(id); err != nil {
 		return err
 	}
+	a.quotas.forget(id)
 	session.Forget(id)
 	return nil
 }
@@ -694,6 +702,7 @@ func (a *App) RenameAccount(id, label string) error {
 // ===== 额度 =====
 
 // GetQuota 查询账号额度；id 为空查当前登录账号。
+// 成功结果统一回写共享存储（主界面与托盘共用一份），托盘菜单下次构建即与主界面一致。
 func (a *App) GetQuota(id string) (*quota.Overview, error) {
 	secret := zcrypto.DefaultSecret()
 	var tokens []string
@@ -719,8 +728,42 @@ func (a *App) GetQuota(id string) (*quota.Overview, error) {
 	}
 	quota.EnrichCodingPlan(ov, cred, secret)
 	quota.EnrichResetCards(ov, cred, secret)
+	if id == "" {
+		// 实时查询按已保存账号 id 归档；guest（未保存）无处归档，跳过
+		if key := a.currentSavedID(); key != "" {
+			a.quotas.put(key, ov)
+			a.emitQuota(key, ov)
+		}
+	} else {
+		a.quotas.put(id, ov)
+		a.emitQuota(id, ov)
+	}
 	return ov, nil
 }
+
+// currentSavedID 读当前登录账号对应的已保存账号 id（GetState 时缓存）；未登录/未保存为空。
+func (a *App) currentSavedID() string {
+	if p := a.curSavedID.Load(); p != nil {
+		return *p
+	}
+	return ""
+}
+
+// emitQuota 共享存储有新结果时推送前端：窗口可见才发（隐藏期间无人观看），
+// 隐藏期漏掉的更新由前端聚焦时的 QuotaCache 轻量同步补齐。
+func (a *App) emitQuota(id string, ov *quota.Overview) {
+	if ov == nil || !a.watchOn.Load() {
+		return
+	}
+	keys := []string{id}
+	if a.currentSavedID() == id {
+		keys = append(keys, "current") // 前端 quotas 状态里实时账号的键
+	}
+	wruntime.EventsEmit(a.ctx, "quota:updated", map[string]any{"keys": keys, "data": ov})
+}
+
+// QuotaCache 共享存储快照（账号 id → 最近查询结果）：主界面聚焦时轻量同步用，不发网络。
+func (a *App) QuotaCache() map[string]*quota.Overview { return a.quotas.snapshot() }
 
 // ===== ZCode 进程 =====
 

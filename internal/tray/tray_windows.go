@@ -23,6 +23,16 @@ func (w *windowsController) Start(icon []byte, tooltip string, menu []Item) {
 	go systray.Run(func() {
 		systray.SetIcon(icon)
 		systray.SetTooltip(tooltip)
+		// 右键托盘先回调再弹菜单：注册后不再走默认 ShowMenu，而是先经 OnOpen
+		// 同步重建（读快照+共享存储，毫秒级），返回后再弹出——等效 darwin 的
+		// menuWillOpen，本次展开即最新状态。回调跑在 systray 消息循环线程，
+		// 菜单 API 是直接 Win32 调用且线程安全，在此上下文重建没有问题。
+		systray.SetOnRClick(func(m systray.IMenu) {
+			if OnOpen != nil {
+				OnOpen()
+			}
+			_ = m.ShowMenu()
+		})
 		w.rebuild(menu)
 	}, func() {})
 }
@@ -34,7 +44,8 @@ func (w *windowsController) SetDockVisible(bool) {} // Windows 无 Dock 概念
 func (w *windowsController) Quit() { systray.Quit() }
 
 // rebuild 全量重建菜单（ResetMenu 清空后按模型重加）。
-// energye/systray 没有菜单即将展开回调，状态新鲜度靠 Update 的调用方（事件驱动）保证。
+// 展开前的新鲜度由 Start 里注册的 SetOnRClick → OnOpen 保证（与 darwin 的 menuWillOpen 对齐）；
+// 其余时刻的状态更新靠 Update 的调用方（事件驱动）保证。
 func (w *windowsController) rebuild(menu []Item) {
 	w.rebuildMu.Lock()
 	defer w.rebuildMu.Unlock()
